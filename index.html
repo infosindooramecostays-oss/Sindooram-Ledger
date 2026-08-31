@@ -6,8 +6,18 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Sindooram">
 <meta name="theme-color" content="#5b3df0">
 <title>Sindooram Ledger</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="assets/icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+<meta property="og:title" content="Sindooram Ledger">
+<meta property="og:description" content="Shared expense & booking book for the villa">
+<meta property="og:image" content="https://infosindooramecostays-oss.github.io/Sindooram-Ledger/assets/icons/og-image.png">
+<meta property="og:url" content="https://infosindooramecostays-oss.github.io/Sindooram-Ledger/">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 :root{
@@ -1560,6 +1570,12 @@ function init(){
 }
 
 init();
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load', function(){
+    navigator.serviceWorker.register('sw.js').catch(function(){});
+  });
+}
 </script>
 </body>
 </html>
