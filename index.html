@@ -1,0 +1,1172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#7a2350">
+<title>Sindooram Ledger</title>
+<style>
+:root{
+  color-scheme: light;
+  --page:#f5efe9;
+  --surface:#fffcfa;
+  --surface-2:#f1e7e0;
+  --text-primary:#0b0b0b;
+  --text-secondary:#52514e;
+  --text-muted:#898781;
+  --grid:#e6dad0;
+  --border:rgba(40,20,10,0.10);
+  --baseline:#c3c2b7;
+  --shadow-1:0 1px 2px rgba(35,18,8,.05), 0 10px 26px -18px rgba(35,18,8,.35);
+  --shadow-hover:0 10px 24px -10px rgba(35,18,8,.28);
+
+  --series-1:#2a78d6;
+  --series-2:#eb6834;
+  --series-3:#1baf7a;
+  --series-4:#eda100;
+  --series-5:#e87ba4;
+  --series-6:#008300;
+  --series-7:#4a3aa7;
+  --series-8:#e34948;
+
+  --good:#0ca30c;
+  --warning:#fab219;
+  --serious:#ec835a;
+  --critical:#d03b3b;
+  --success-text:#006300;
+
+  --seq-400:#3987e5;
+  --seq-500:#256abf;
+
+  --accent:#c1442c;
+  --accent-2:#8a2a4a;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    color-scheme: dark;
+    --page:#161210;
+    --surface:#221b18;
+    --surface-2:#2c2320;
+    --text-primary:#ffffff;
+    --text-secondary:#c3c2b7;
+    --text-muted:#948f89;
+    --grid:#3a2f2a;
+    --border:rgba(255,240,230,0.10);
+    --baseline:#383835;
+    --shadow-1:0 0 0 1px rgba(255,255,255,.04), 0 10px 26px -14px rgba(0,0,0,.6);
+    --shadow-hover:0 10px 24px -8px rgba(0,0,0,.65);
+
+    --series-1:#3987e5;
+    --series-2:#d95926;
+    --series-3:#199e70;
+    --series-4:#c98500;
+    --series-5:#d55181;
+    --series-6:#008300;
+    --series-7:#9085e9;
+    --series-8:#e66767;
+
+    --success-text:#0ca30c;
+
+    --accent:#e2643f;
+    --accent-2:#c65a90;
+  }
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  background:
+    radial-gradient(1100px 420px at 50% -140px, rgba(193,68,44,0.14), transparent 60%),
+    radial-gradient(900px 520px at 100% 110%, rgba(138,42,74,0.08), transparent 60%),
+    var(--page);
+  background-attachment: fixed;
+  color:var(--text-primary);
+  -webkit-tap-highlight-color: transparent;
+}
+@media (prefers-color-scheme: dark){
+  body{
+    background:
+      radial-gradient(1100px 420px at 50% -140px, rgba(226,100,63,0.11), transparent 60%),
+      radial-gradient(900px 520px at 100% 110%, rgba(198,90,144,0.07), transparent 60%),
+      var(--page);
+    background-attachment: fixed;
+  }
+}
+button, input, select{ font-family: inherit; }
+button{ transition: background-color .15s ease, color .15s ease, box-shadow .15s ease, transform .15s ease, border-color .15s ease; }
+input, select{ transition: border-color .15s ease, box-shadow .15s ease; }
+input:focus, select:focus{ outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(193,68,44,.18); }
+
+.topbar{
+  position:sticky; top:0; z-index:20;
+  background: linear-gradient(135deg, #7d3016 0%, #7a2350 55%, #34285e 100%);
+  padding:16px 16px 14px;
+  padding-top:calc(16px + env(safe-area-inset-top));
+  text-align:center;
+  box-shadow:0 2px 14px rgba(0,0,0,.22);
+}
+.hero-brand{ color:#ffffff; font-size:19px; font-weight:800; letter-spacing:.01em; }
+.hero-tagline{ color:rgba(255,255,255,.82); font-size:12.5px; margin-top:2px; }
+.topbar-title{
+  display:inline-block; margin-top:11px;
+  font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.06em;
+  color:#fff; background:rgba(255,255,255,.18);
+  padding:4px 13px; border-radius:999px;
+}
+.conn-status{ margin-top:8px; font-size:10.5px; color:rgba(255,255,255,.85); display:flex; align-items:center; justify-content:center; gap:5px; letter-spacing:.02em; }
+.conn-dot{ width:7px; height:7px; border-radius:50%; display:inline-block; flex:none; }
+.conn-dot-live{ background:#3ddc71; box-shadow:0 0 0 3px rgba(61,220,113,.25); }
+.conn-dot-syncing{ background:#ffd166; }
+.conn-dot-error{ background:#ff6b6b; }
+.conn-dot-off{ background:rgba(255,255,255,.4); }
+
+#app{ max-width:640px; margin:0 auto; padding:14px 14px 100px; }
+.tab{ display:none; }
+.tab.active{ display:block; }
+
+.card{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:16px;
+  padding:14px;
+  margin-bottom:12px;
+  box-shadow:var(--shadow-1);
+}
+.card-title{ margin:0 0 10px; font-size:14px; font-weight:700; }
+
+.seg{ display:flex; background:var(--surface-2); border-radius:11px; padding:3px; gap:2px; margin-bottom:12px; }
+.seg-btn{ flex:1; border:0; background:transparent; padding:9px 4px; border-radius:8px; font-size:13px; color:var(--text-secondary); cursor:pointer; }
+.seg-btn:hover:not(.active){ background:var(--border); color:var(--text-primary); }
+.seg-btn.active{ background:var(--accent); color:#fff; font-weight:700; box-shadow:0 2px 8px -2px rgba(193,68,44,.55); }
+
+.period-nav{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+.icon-btn{ width:34px; height:34px; border-radius:50%; border:1px solid var(--border); background:var(--surface); color:var(--text-primary); font-size:18px; cursor:pointer; }
+.icon-btn:hover:not(:disabled){ background:var(--accent); border-color:var(--accent); color:#fff; }
+.icon-btn:disabled{ opacity:.35; cursor:default; }
+.period-label{ text-align:center; font-size:14px; }
+.period-label span{ display:block; font-size:11px; color:var(--text-muted); margin-top:1px; }
+
+.stat-grid{ display:grid; grid-template-columns:repeat(2,1fr); gap:10px; margin-bottom:14px; }
+.stat-grid-3{ grid-template-columns:repeat(3,1fr); }
+@media (min-width:560px){ .stat-grid{ grid-template-columns:repeat(4,1fr); } }
+.stat-tile{ background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:12px; box-shadow:var(--shadow-1); transition:transform .15s ease, box-shadow .15s ease; }
+.stat-tile:hover{ transform:translateY(-2px); box-shadow:var(--shadow-hover); }
+.stat-label{ font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:.03em; }
+.stat-value{ font-size:20px; font-weight:700; margin-top:5px; word-break:break-word; }
+.stat-delta{ display:block; font-size:11.5px; margin-top:5px; color:var(--text-muted); }
+.stat-delta.up{ color:var(--success-text); }
+.stat-delta.down{ color:var(--critical); }
+
+.cat-row{ margin-bottom:12px; }
+.cat-row:last-child{ margin-bottom:0; }
+.cat-row-top{ display:flex; justify-content:space-between; font-size:13px; margin-bottom:5px; }
+.cat-track{ height:8px; border-radius:4px; background:var(--surface-2); overflow:hidden; }
+.cat-fill{ height:100%; border-radius:4px; }
+.empty-hint{ color:var(--text-muted); font-size:13px; margin:4px 0; }
+
+.spark-svg{ width:100%; height:64px; display:block; }
+.spark-labels{ display:flex; justify-content:space-between; font-size:11px; color:var(--text-muted); margin-top:4px; }
+
+.tx-list .tx-row{ display:flex; justify-content:space-between; align-items:center; padding:10px 8px; margin:0 -8px; border-radius:10px; border-bottom:1px solid var(--grid); cursor:pointer; transition:background-color .15s ease; }
+.tx-list .tx-row:hover{ background:var(--surface-2); }
+.tx-list .tx-row:last-child{ border-bottom:0; }
+.tx-left{ display:flex; align-items:flex-start; gap:8px; min-width:0; }
+.dot{ width:9px; height:9px; border-radius:50%; margin-top:5px; flex:none; }
+.tx-cat{ font-size:14px; font-weight:600; overflow-wrap:anywhere; }
+.tx-date{ font-size:12px; color:var(--text-muted); margin-top:1px; }
+.tx-right{ flex:none; padding-left:8px; }
+.tx-amount{ font-size:14px; font-weight:700; white-space:nowrap; }
+.tx-amount.income{ color:var(--success-text); }
+.tx-amount.expense{ color:var(--text-primary); }
+
+.booking-list .booking-card{ background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:12px; margin-bottom:10px; cursor:pointer; box-shadow:var(--shadow-1); transition:transform .15s ease, box-shadow .15s ease, border-color .15s ease; }
+.booking-list .booking-card:hover{ transform:translateY(-2px); box-shadow:var(--shadow-hover); border-color:var(--accent); }
+.booking-card-top{ display:flex; justify-content:space-between; align-items:center; gap:8px; }
+.booking-meta{ font-size:12px; color:var(--text-muted); margin-top:4px; }
+.booking-dates{ font-size:13px; margin-top:6px; }
+.booking-bottom{ display:flex; justify-content:flex-end; margin-top:8px; }
+.booking-amount{ font-weight:700; font-size:14px; }
+
+.badge{ font-size:11px; padding:3px 9px; border-radius:999px; font-weight:700; flex:none; }
+.badge-good{ background:rgba(12,163,12,0.15); color:var(--success-text); }
+.badge-warning{ background:rgba(250,178,25,0.22); color:#8a5c00; }
+.badge-critical{ background:rgba(208,59,59,0.15); color:var(--critical); }
+.badge-neutral{ background:var(--surface-2); color:var(--text-secondary); }
+
+.fab{
+  position:fixed; right:20px; bottom:calc(70px + env(safe-area-inset-bottom));
+  width:56px; height:56px; padding:0; border-radius:50%; border:0;
+  display:flex; align-items:center; justify-content:center;
+  background:linear-gradient(135deg, var(--accent), var(--accent-2)); color:#fff;
+  box-shadow:0 4px 14px rgba(0,0,0,.28); cursor:pointer; z-index:40;
+  transition:transform .15s ease, box-shadow .15s ease;
+}
+.fab:hover{ transform:scale(1.07); box-shadow:0 8px 22px rgba(0,0,0,.35); }
+.fab:active{ transform:scale(.95); }
+.bottomnav{
+  position:fixed; left:0; right:0; bottom:0; z-index:30;
+  display:flex; background:var(--surface); border-top:1px solid var(--border);
+  padding-bottom:env(safe-area-inset-bottom);
+  box-shadow:0 -4px 18px rgba(20,10,5,.06);
+}
+.navbtn{ flex:1; display:flex; flex-direction:column; align-items:center; gap:2px; padding:9px 0 8px; background:none; border:0; color:var(--text-secondary); font-size:11px; cursor:pointer; }
+.navbtn:hover:not(.active){ color:var(--text-primary); }
+.navbtn.active{ color:var(--accent); }
+.navbtn svg{ display:block; }
+
+label{ display:block; font-size:13px; color:var(--text-secondary); margin-bottom:12px; }
+label input, label select{
+  display:block; width:100%; margin-top:5px; padding:11px; border-radius:10px;
+  border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); font-size:15px;
+}
+.settings-actions{ display:flex; gap:10px; flex-wrap:wrap; }
+.btn-primary{ background:var(--accent); color:#fff; border:0; padding:11px 18px; border-radius:10px; font-weight:700; font-size:14px; cursor:pointer; }
+.btn-primary:hover{ background:var(--accent-2); box-shadow:0 4px 14px -4px rgba(193,68,44,.5); }
+.btn-secondary{ background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border); padding:11px 18px; border-radius:10px; font-weight:600; font-size:14px; cursor:pointer; }
+.btn-secondary:hover{ background:var(--grid); border-color:var(--accent); }
+.btn-danger{ background:transparent; color:var(--critical); border:1px solid var(--critical); padding:11px 18px; border-radius:10px; font-weight:700; font-size:14px; cursor:pointer; }
+.btn-danger:hover{ background:rgba(208,59,59,.10); }
+.sync-status{ font-size:12.5px; color:var(--text-muted); margin-top:10px; }
+
+details.card summary{ cursor:pointer; font-weight:700; font-size:14px; list-style:none; }
+details.card summary::-webkit-details-marker{ display:none; }
+details.card summary::after{ content:'+'; float:right; font-weight:400; }
+details.card[open] summary::after{ content:'−'; }
+.guide-body{ margin-top:12px; font-size:13.5px; line-height:1.55; }
+.guide-body ol{ padding-left:20px; margin:8px 0; }
+.guide-body li{ margin-bottom:6px; }
+.code-block{ background:var(--surface-2); border:1px solid var(--border); border-radius:10px; padding:10px; font-size:11.5px; overflow-x:auto; white-space:pre; margin:10px 0; }
+.guide-note{ background:var(--surface-2); border-left:3px solid var(--accent); padding:8px 10px; border-radius:6px; font-size:12.5px; margin:10px 0; }
+
+.modal-overlay{ display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:50; align-items:flex-end; justify-content:center; }
+.modal-overlay.open{ display:flex; }
+.modal{ background:var(--surface); width:100%; max-width:480px; border-radius:16px 16px 0 0; padding:18px; max-height:92vh; overflow-y:auto; box-shadow:0 -8px 40px rgba(0,0,0,.25); }
+@media (min-width:560px){ .modal-overlay{ align-items:center; } .modal{ border-radius:16px; box-shadow:0 20px 60px rgba(0,0,0,.35); } }
+.modal-header{ display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; }
+.modal-header h3{ margin:0; font-size:17px; }
+.modal-close{ background:none; border:0; width:30px; height:30px; border-radius:50%; font-size:20px; color:var(--text-muted); cursor:pointer; line-height:1; }
+.modal-close:hover{ background:var(--surface-2); color:var(--text-primary); }
+.modal-actions{ display:flex; justify-content:space-between; align-items:center; gap:10px; margin-top:6px; }
+
+#toast{
+  position:fixed; left:50%; bottom:78px; transform:translate(-50%,10px);
+  background:var(--text-primary); color:var(--page); padding:10px 16px; border-radius:999px;
+  font-size:13px; opacity:0; pointer-events:none; transition:opacity .2s, transform .2s; z-index:60;
+}
+#toast.show{ opacity:1; transform:translate(-50%,0); }
+
+.copy-btn{ background:var(--surface); border:1px solid var(--border); color:var(--text-primary); font-size:12px; padding:6px 10px; border-radius:8px; cursor:pointer; }
+.copy-btn:hover{ background:var(--surface-2); border-color:var(--accent); color:var(--accent); }
+details.card summary:hover{ color:var(--accent); }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="hero-brand">Sindooram Ledger</div>
+  <div class="hero-tagline">Shared expense &amp; booking book for the villa</div>
+  <div class="topbar-title" id="topbarTitle">Dashboard</div>
+  <div class="conn-status" id="connStatus"><span class="conn-dot conn-dot-off"></span>Not connected</div>
+</header>
+
+<main id="app">
+
+  <section id="tab-dashboard" class="tab active"></section>
+
+  <section id="tab-bookings" class="tab"></section>
+
+  <section id="tab-settings" class="tab"></section>
+
+</main>
+
+<button id="fabAdd" class="fab" aria-label="Add">
+  <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+</button>
+
+<nav class="bottomnav">
+  <button class="navbtn active" data-action="switch-tab" data-tab="dashboard">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+    Dashboard
+  </button>
+  <button class="navbtn" data-action="switch-tab" data-tab="bookings">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v4M16 3v4"/></svg>
+    Bookings
+  </button>
+  <button class="navbtn" data-action="switch-tab" data-tab="settings">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.9 2.9l-.1-.1a1.7 1.7 0 00-1.9-.3 1.7 1.7 0 00-1 1.6V21a2 2 0 01-4 0v-.1a1.7 1.7 0 00-1-1.6 1.7 1.7 0 00-1.9.3l-.1.1a2 2 0 11-2.9-2.9l.1-.1a1.7 1.7 0 00.3-1.9 1.7 1.7 0 00-1.6-1H3a2 2 0 010-4h.1a1.7 1.7 0 001.6-1 1.7 1.7 0 00-.3-1.9l-.1-.1a2 2 0 112.9-2.9l.1.1a1.7 1.7 0 001.9.3H9a1.7 1.7 0 001-1.6V3a2 2 0 014 0v.1a1.7 1.7 0 001 1.6 1.7 1.7 0 001.9-.3l.1-.1a2 2 0 112.9 2.9l-.1.1a1.7 1.7 0 00-.3 1.9V9a1.7 1.7 0 001.6 1H21a2 2 0 010 4h-.1a1.7 1.7 0 00-1.6 1z"/></svg>
+    Settings
+  </button>
+</nav>
+
+<!-- Transaction Modal -->
+<div class="modal-overlay" id="txnModalOverlay">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="txnModalTitle">Add Transaction</h3>
+      <button class="modal-close" data-action="close-txn-modal" aria-label="Close">&times;</button>
+    </div>
+    <form id="txnForm">
+      <input type="hidden" id="txnId">
+      <div class="seg" id="txnTypeSeg">
+        <button type="button" class="seg-btn active" data-action="set-type" data-type="expense">Expense</button>
+        <button type="button" class="seg-btn" data-action="set-type" data-type="income">Income</button>
+      </div>
+      <label>Date <input required type="date" id="txnDate"></label>
+      <label>Category <select required id="txnCategory"></select></label>
+      <label>Sub-category <span style="color:var(--text-muted);">(optional)</span>
+        <input type="text" id="txnSubcategory" list="subcategoryList" placeholder="e.g. Manager Salary, Electricity Bill">
+        <datalist id="subcategoryList"></datalist>
+      </label>
+      <label>Description <input type="text" id="txnDescription" placeholder="e.g. Pool cleaning"></label>
+      <label>Amount (₹) <input required type="number" min="0" step="0.01" id="txnAmount" placeholder="0.00"></label>
+      <label>Added by <input type="text" id="txnAddedBy" placeholder="Your name"></label>
+      <div class="modal-actions">
+        <button type="button" class="btn-danger" id="txnDeleteBtn" data-action="delete-txn-from-modal" style="display:none;">Delete</button>
+        <button type="submit" class="btn-primary" style="margin-left:auto;">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Booking Modal -->
+<div class="modal-overlay" id="bookingModalOverlay">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="bookingModalTitle">Add Booking</h3>
+      <button class="modal-close" data-action="close-booking-modal" aria-label="Close">&times;</button>
+    </div>
+    <form id="bookingForm">
+      <input type="hidden" id="bookingId">
+      <label>Booking number <input required type="text" id="bookingNumber"></label>
+      <label>Guest name <input required type="text" id="guestName"></label>
+      <label>Check-in <input required type="date" id="checkIn"></label>
+      <label>Check-out <input required type="date" id="checkOut"></label>
+      <label>Source <select id="bookingSource"></select></label>
+      <label>Amount (₹) <input required type="number" min="0" step="0.01" id="bookingAmount" placeholder="0.00"></label>
+      <label>Status <select id="bookingStatus"></select></label>
+      <label>Added by <input type="text" id="bookingAddedBy" placeholder="Your name"></label>
+      <div class="modal-actions">
+        <button type="button" class="btn-danger" id="bookingDeleteBtn" data-action="delete-booking-from-modal" style="display:none;">Delete</button>
+        <button type="submit" class="btn-primary" style="margin-left:auto;">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+'use strict';
+
+/* ---------- Constants ---------- */
+var LS_KEYS = { settings:'sr_settings_v1', cache:'sr_cache_v1' };
+var EXPENSE_CATEGORIES = ['Fixed Expenses','Maintenance','Property Upgrades','Digital Promotions','Other'];
+var INCOME_CATEGORIES = ['Booking Revenue','Other Income'];
+var BOOKING_SOURCES = ['Direct','Airbnb','Booking.com','MakeMyTrip','Other'];
+var SUBCATEGORY_PRESETS = {
+  'Fixed Expenses': ['Manager Salary','Caretaker Salary','Staff Salary','Electricity Bill','Water Bill','Internet Bill','Property Tax','Insurance','Society/HOA Fees'],
+  'Maintenance': ['Repairs','Pool Cleaning','Pest Control','Gardening','Housekeeping Supplies','Plumbing','Electrical Work'],
+  'Property Upgrades': ['Furniture','Renovation','Appliances','Decor','Landscaping'],
+  'Digital Promotions': ['Social Media Ads','Listing Fees','Website','Photography'],
+  'Booking Revenue': ['Direct','Airbnb','Booking.com','MakeMyTrip']
+};
+var BOOKING_STATUSES = ['Confirmed','Pending','Completed','Cancelled'];
+var GRAN_LABELS = { daily:'Daily', weekly:'Weekly', monthly:'Monthly', ytd:'YTD' };
+var POLL_INTERVAL_MS = 25000;
+var CATEGORY_COLOR = {
+  'Fixed Expenses':'var(--series-1)',
+  'Maintenance':'var(--series-2)',
+  'Property Upgrades':'var(--series-3)',
+  'Digital Promotions':'var(--series-4)',
+  'Other':'var(--series-8)',
+  'Booking Revenue':'var(--series-6)',
+  'Other Income':'var(--series-7)'
+};
+var APPS_SCRIPT_CODE =
+'function doGet(e) {\n' +
+'  return jsonResponse(readAll());\n' +
+'}\n\n' +
+'function doPost(e) {\n' +
+'  var data = JSON.parse(e.postData.contents);\n' +
+'  var ss = SpreadsheetApp.getActiveSpreadsheet();\n' +
+'  writeTransactions(ss, data.transactions || []);\n' +
+'  writeBookings(ss, data.bookings || []);\n' +
+'  return jsonResponse(readAll());\n' +
+'}\n\n' +
+'function readAll() {\n' +
+'  var ss = SpreadsheetApp.getActiveSpreadsheet();\n' +
+'  return {\n' +
+'    transactions: readSheet(ss, \'Transactions\', [\'id\',\'type\',\'date\',\'category\',\'subcategory\',\'description\',\'amount\',\'addedBy\',\'createdAt\',\'updatedAt\']),\n' +
+'    bookings: readSheet(ss, \'Bookings\', [\'id\',\'bookingNumber\',\'guestName\',\'checkIn\',\'checkOut\',\'source\',\'amount\',\'status\',\'addedBy\',\'createdAt\',\'updatedAt\'])\n' +
+'  };\n' +
+'}\n\n' +
+'function jsonResponse(obj) {\n' +
+'  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);\n' +
+'}\n\n' +
+'function readSheet(ss, name, keys) {\n' +
+'  var sheet = ss.getSheetByName(name);\n' +
+'  if (!sheet) return [];\n' +
+'  var values = sheet.getDataRange().getValues();\n' +
+'  if (values.length < 2) return [];\n' +
+'  return values.slice(1)\n' +
+'    .filter(function (row) { return row[0] !== \'\' && row[0] !== null; })\n' +
+'    .map(function (row) {\n' +
+'      var obj = {};\n' +
+'      keys.forEach(function (key, i) {\n' +
+'        var val = row[i];\n' +
+'        if (val instanceof Date) {\n' +
+'          val = Utilities.formatDate(val, Session.getScriptTimeZone(), "yyyy-MM-dd\'T\'HH:mm:ss");\n' +
+'        }\n' +
+'        obj[key] = val;\n' +
+'      });\n' +
+'      return obj;\n' +
+'    });\n' +
+'}\n\n' +
+'function writeTransactions(ss, transactions) {\n' +
+'  var sheet = ss.getSheetByName(\'Transactions\') || ss.insertSheet(\'Transactions\');\n' +
+'  sheet.clear();\n' +
+'  var headers = [\'ID\', \'Type\', \'Date\', \'Category\', \'Subcategory\', \'Description\', \'Amount\', \'Added By\', \'Created At\', \'Updated At\'];\n' +
+'  sheet.appendRow(headers);\n' +
+'  transactions.forEach(function (t) {\n' +
+'    sheet.appendRow([t.id, t.type, t.date, t.category, t.subcategory || \'\', t.description || \'\', t.amount, t.addedBy, t.createdAt, t.updatedAt]);\n' +
+'  });\n' +
+'  sheet.getRange(1, 1, 1, headers.length).setFontWeight(\'bold\');\n' +
+'  sheet.autoResizeColumns(1, headers.length);\n' +
+'}\n\n' +
+'function writeBookings(ss, bookings) {\n' +
+'  var sheet = ss.getSheetByName(\'Bookings\') || ss.insertSheet(\'Bookings\');\n' +
+'  sheet.clear();\n' +
+'  var headers = [\'ID\', \'Booking Number\', \'Guest\', \'Check-in\', \'Check-out\', \'Source\', \'Amount\', \'Status\', \'Added By\', \'Created At\', \'Updated At\'];\n' +
+'  sheet.appendRow(headers);\n' +
+'  bookings.forEach(function (b) {\n' +
+'    sheet.appendRow([b.id, b.bookingNumber, b.guestName, b.checkIn, b.checkOut, b.source, b.amount, b.status, b.addedBy, b.createdAt, b.updatedAt]);\n' +
+'  });\n' +
+'  sheet.getRange(1, 1, 1, headers.length).setFontWeight(\'bold\');\n' +
+'  sheet.autoResizeColumns(1, headers.length);\n' +
+'}';
+
+/* ---------- State ---------- */
+var state = { transactions:[], bookings:[], settings:{ appsScriptUrl:'', userName:'' } };
+var currentTab = 'dashboard';
+var dashGran = 'monthly';
+var dashOffset = 0;
+var bookingsFilter = 'upcoming';
+var connectionStatus = 'idle';
+var lastLoadedAt = null;
+var pollTimer = null;
+var isSaving = false;
+
+/* ---------- Storage ---------- */
+function loadState(){
+  try{
+    var s = JSON.parse(localStorage.getItem(LS_KEYS.settings)) || {};
+    state.settings = { appsScriptUrl: s.appsScriptUrl || '', userName: s.userName || '' };
+  }catch(e){}
+  try{
+    var c = JSON.parse(localStorage.getItem(LS_KEYS.cache)) || {};
+    state.transactions = Array.isArray(c.transactions) ? c.transactions : [];
+    state.bookings = Array.isArray(c.bookings) ? c.bookings : [];
+  }catch(e){}
+}
+function saveSettings(){ localStorage.setItem(LS_KEYS.settings, JSON.stringify(state.settings)); }
+function cacheLocally(){
+  try{ localStorage.setItem(LS_KEYS.cache, JSON.stringify({ transactions: state.transactions, bookings: state.bookings })); }catch(e){}
+}
+
+/* ---------- Utils ---------- */
+function uid(prefix){ return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+function escapeHtml(str){
+  return String(str == null ? '' : str).replace(/[&<>"']/g, function(c){
+    return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
+  });
+}
+function money(n){
+  var v = Number(n) || 0;
+  var digits = Number.isInteger(v) ? 0 : 2;
+  return new Intl.NumberFormat('en-IN', { style:'currency', currency:'INR', maximumFractionDigits:digits, minimumFractionDigits:digits }).format(v);
+}
+function startOfDay(d){ var x = new Date(d); x.setHours(0,0,0,0); return x; }
+function endOfDay(d){ var x = new Date(d); x.setHours(23,59,59,999); return x; }
+function addDays(d,n){ var x = new Date(d); x.setDate(x.getDate()+n); return x; }
+function addMonths(d,n){ var x = new Date(d); x.setMonth(x.getMonth()+n); return x; }
+function startOfWeek(d){ var x = startOfDay(d); var day = (x.getDay()+6)%7; return addDays(x,-day); }
+function parseDateOnly(str){ return new Date(str + 'T00:00:00'); }
+function todayStr(){ var d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
+function fmtShort(d){ return d.toLocaleDateString('en-IN', { day:'2-digit', month:'short' }); }
+function nightsBetween(a,b){ return Math.round((parseDateOnly(b) - parseDateOnly(a)) / 86400000); }
+function deltaPct(curr, prev){ if(!prev) return null; return ((curr - prev) / Math.abs(prev)) * 100; }
+function timeAgo(iso){
+  var diff = Date.now() - new Date(iso).getTime();
+  var min = Math.floor(diff/60000);
+  if(min < 1) return 'just now';
+  if(min < 60) return min + ' min ago';
+  var hr = Math.floor(min/60);
+  if(hr < 24) return hr + ' hr' + (hr>1?'s':'') + ' ago';
+  var day = Math.floor(hr/24);
+  return day + ' day' + (day>1?'s':'') + ' ago';
+}
+
+function getRange(gran, offset){
+  var now = new Date();
+  if(gran === 'daily'){
+    var d = addDays(now, offset);
+    return { start:startOfDay(d), end:endOfDay(d), label:fmtShort(d) + ', ' + d.getFullYear(), sub: offset===0 ? 'Today' : null };
+  }
+  if(gran === 'weekly'){
+    var base = addDays(now, offset*7);
+    var start = startOfWeek(base);
+    var end = endOfDay(addDays(start,6));
+    return { start:start, end:end, label: fmtShort(start) + ' – ' + fmtShort(end) + ', ' + end.getFullYear(), sub: offset===0 ? 'This week' : null };
+  }
+  if(gran === 'monthly'){
+    var mbase = addMonths(new Date(now.getFullYear(), now.getMonth(), 1), offset);
+    var mstart = mbase;
+    var mend = endOfDay(new Date(mbase.getFullYear(), mbase.getMonth()+1, 0));
+    return { start:mstart, end:mend, label: mbase.toLocaleDateString('en-IN', { month:'long', year:'numeric' }), sub: offset===0 ? 'This month' : null };
+  }
+  var year = now.getFullYear() + offset;
+  var ystart = new Date(year, 0, 1);
+  var yend = (year === now.getFullYear()) ? endOfDay(now) : endOfDay(new Date(year, 11, 31));
+  return { start:ystart, end:yend, label:String(year), sub: year === now.getFullYear() ? 'Year to date' : 'Full year' };
+}
+function filterInRange(list, range, field){
+  field = field || 'date';
+  return list.filter(function(item){
+    var d = parseDateOnly(item[field]);
+    return d >= range.start && d <= range.end;
+  });
+}
+function summarize(txns){
+  var income = 0, expenses = 0, byCat = {};
+  txns.forEach(function(t){
+    var amt = Number(t.amount) || 0;
+    if(t.type === 'income'){ income += amt; }
+    else { expenses += amt; byCat[t.category] = (byCat[t.category] || 0) + amt; }
+  });
+  return { income:income, expenses:expenses, net:income-expenses, byCat:byCat };
+}
+function computeTrendBuckets(gran, count){
+  var buckets = [];
+  for(var i = count-1; i >= 0; i--){
+    var range = getRange(gran, -i);
+    var list = filterInRange(state.transactions, range);
+    var s = summarize(list);
+    buckets.push({ label: range.label, net: s.net });
+  }
+  return buckets;
+}
+function renderSparkline(buckets){
+  var w = 300, h = 64, pad = 8;
+  var vals = buckets.map(function(b){ return b.net; });
+  var max = Math.max.apply(null, vals.concat([0]));
+  var min = Math.min.apply(null, vals.concat([0]));
+  var range = (max - min) || 1;
+  var stepX = (w - 2*pad) / ((buckets.length - 1) || 1);
+  var pts = vals.map(function(v,i){
+    var x = pad + i*stepX;
+    var y = pad + (1 - (v - min)/range) * (h - 2*pad);
+    return [x,y];
+  });
+  var linePath = pts.map(function(p,i){ return (i===0?'M':'L') + p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' ');
+  var last = pts[pts.length-1], first = pts[0];
+  var areaPath = linePath + ' L' + last[0].toFixed(1) + ',' + (h-pad) + ' L' + first[0].toFixed(1) + ',' + (h-pad) + ' Z';
+  var zeroY = pad + (1 - (0 - min)/range) * (h - 2*pad);
+  var circles = pts.map(function(p){ return '<circle cx="'+p[0].toFixed(1)+'" cy="'+p[1].toFixed(1)+'" r="2.5" fill="var(--seq-500)"/>'; }).join('');
+  return '<svg viewBox="0 0 '+w+' '+h+'" preserveAspectRatio="none" class="spark-svg">' +
+    '<line x1="'+pad+'" y1="'+zeroY.toFixed(1)+'" x2="'+(w-pad)+'" y2="'+zeroY.toFixed(1)+'" stroke="var(--grid)" stroke-width="1"/>' +
+    '<path d="'+areaPath+'" fill="var(--seq-400)" opacity="0.15" stroke="none"/>' +
+    '<path d="'+linePath+'" fill="none" stroke="var(--seq-500)" stroke-width="2"/>' +
+    circles +
+  '</svg>';
+}
+
+/* ---------- Toast ---------- */
+var toastTimer = null;
+function toast(msg){
+  var el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function(){ el.classList.remove('show'); }, 2200);
+}
+
+/* ---------- Tab switching ---------- */
+function switchTab(name){
+  currentTab = name;
+  document.querySelectorAll('.tab').forEach(function(t){ t.classList.toggle('active', t.id === 'tab-' + name); });
+  document.querySelectorAll('.navbtn').forEach(function(b){ b.classList.toggle('active', b.dataset.tab === name); });
+  document.getElementById('topbarTitle').textContent = { dashboard:'Dashboard', bookings:'Bookings', settings:'Settings' }[name];
+  document.getElementById('fabAdd').style.display = name === 'settings' ? 'none' : 'flex';
+  renderCurrentTab();
+}
+function renderCurrentTab(){
+  if(currentTab === 'dashboard') renderDashboard();
+  else if(currentTab === 'bookings') renderBookings();
+  else renderSettings();
+}
+
+/* ---------- Dashboard ---------- */
+function tileHTML(label, curr, prev, invert){
+  var pct = deltaPct(curr, prev);
+  var deltaHTML = '<span class="stat-delta">No prior data</span>';
+  if(pct !== null){
+    var up = pct >= 0;
+    var good = invert ? !up : up;
+    var arrow = up ? '▲' : '▼';
+    deltaHTML = '<span class="stat-delta ' + (good?'up':'down') + '">' + arrow + ' ' + Math.abs(pct).toFixed(0) + '% vs last</span>';
+  }
+  return '<div class="stat-tile"><div class="stat-label">' + escapeHtml(label) + '</div><div class="stat-value">' + money(curr) + '</div>' + deltaHTML + '</div>';
+}
+function txnRowHTML(t){
+  var isIncome = t.type === 'income';
+  var color = CATEGORY_COLOR[t.category] || 'var(--series-8)';
+  return '<div class="tx-row" data-action="edit-txn" data-id="' + t.id + '">' +
+    '<div class="tx-left"><span class="dot" style="background:' + color + '"></span><div>' +
+    '<div class="tx-cat">' + escapeHtml(t.category) + (t.subcategory ? ' &rsaquo; ' + escapeHtml(t.subcategory) : '') + (t.description ? ' &middot; ' + escapeHtml(t.description) : '') + '</div>' +
+    '<div class="tx-date">' + fmtShort(parseDateOnly(t.date)) + (t.addedBy ? ' &middot; ' + escapeHtml(t.addedBy) : '') + '</div>' +
+    '</div></div>' +
+    '<div class="tx-right"><span class="tx-amount ' + (isIncome?'income':'expense') + '">' + (isIncome?'+':'−') + money(Math.abs(t.amount)) + '</span></div>' +
+  '</div>';
+}
+function notConnectedHTML(){
+  return '<div class="card" style="text-align:center;">' +
+    '<h3 class="card-title">Connect your Google Sheet</h3>' +
+    '<p class="empty-hint">Set up the Apps Script Web App URL in Settings so this page can load and save the shared ledger.</p>' +
+    '<button type="button" class="btn-primary" data-action="switch-tab" data-tab="settings">Go to Settings</button>' +
+    '</div>';
+}
+function renderDashboard(){
+  var dashboardEl = document.getElementById('tab-dashboard');
+  if(!state.settings.appsScriptUrl){ dashboardEl.innerHTML = notConnectedHTML(); return; }
+  var range = getRange(dashGran, dashOffset);
+  var list = filterInRange(state.transactions, range);
+  var summary = summarize(list);
+  var prevRange = getRange(dashGran, dashOffset - 1);
+  var prevList = filterInRange(state.transactions, prevRange);
+  var prevSummary = summarize(prevList);
+
+  var bookingsInRange = state.bookings.filter(function(b){
+    var ci = parseDateOnly(b.checkIn);
+    return ci >= range.start && ci <= range.end;
+  });
+  var bookingsRevenue = bookingsInRange.reduce(function(s,b){ return s + (Number(b.amount)||0); }, 0);
+  var prevBookings = state.bookings.filter(function(b){
+    var ci = parseDateOnly(b.checkIn);
+    return ci >= prevRange.start && ci <= prevRange.end;
+  });
+  var prevBookingsRevenue = prevBookings.reduce(function(s,b){ return s + (Number(b.amount)||0); }, 0);
+
+  var tiles = tileHTML('Income', summary.income, prevSummary.income, false) +
+    tileHTML('Expenses', summary.expenses, prevSummary.expenses, true) +
+    tileHTML('Net Balance', summary.net, prevSummary.net, false) +
+    tileHTML('Bookings Revenue', bookingsRevenue, prevBookingsRevenue, false);
+
+  var catEntries = Object.keys(summary.byCat).map(function(k){ return [k, summary.byCat[k]]; }).sort(function(a,b){ return b[1]-a[1]; });
+  var maxCat = catEntries.length ? catEntries[0][1] : 0;
+  var catHTML = catEntries.length ? catEntries.map(function(e){
+    var cat = e[0], amt = e[1];
+    var pct = maxCat ? (amt/maxCat*100) : 0;
+    return '<div class="cat-row"><div class="cat-row-top"><span>' + escapeHtml(cat) + '</span><span>' + money(amt) + '</span></div>' +
+      '<div class="cat-track"><div class="cat-fill" style="width:' + pct + '%;background:' + (CATEGORY_COLOR[cat]||'var(--series-8)') + '"></div></div></div>';
+  }).join('') : '<p class="empty-hint">No expenses recorded for this period.</p>';
+
+  var trendCount = { daily:7, weekly:6, monthly:6, ytd:5 }[dashGran];
+  var buckets = computeTrendBuckets(dashGran, trendCount);
+
+  var sortedList = list.slice().sort(function(a,b){ return (b.date+b.createdAt).localeCompare(a.date+a.createdAt); });
+  var recentHTML = sortedList.length ? sortedList.map(txnRowHTML).join('') : '<p class="empty-hint">No transactions yet for this period. Tap + to add one.</p>';
+
+  dashboardEl.innerHTML =
+    '<div class="seg" id="granSeg">' +
+      ['daily','weekly','monthly','ytd'].map(function(g){
+        return '<button type="button" class="seg-btn ' + (g===dashGran?'active':'') + '" data-action="set-gran" data-gran="' + g + '">' + GRAN_LABELS[g] + '</button>';
+      }).join('') +
+    '</div>' +
+    '<div class="period-nav">' +
+      '<button class="icon-btn" data-action="period-prev" aria-label="Previous">‹</button>' +
+      '<div class="period-label"><strong>' + range.label + '</strong>' + (range.sub ? '<span>' + range.sub + '</span>' : '') + '</div>' +
+      '<button class="icon-btn" data-action="period-next" ' + (dashOffset>=0?'disabled':'') + ' aria-label="Next">›</button>' +
+    '</div>' +
+    '<div class="stat-grid">' + tiles + '</div>' +
+    '<div class="card"><h3 class="card-title">Expense breakdown</h3>' + catHTML + '</div>' +
+    '<div class="card"><h3 class="card-title">Net trend</h3>' + renderSparkline(buckets) +
+      '<div class="spark-labels"><span>' + buckets[0].label + '</span><span>' + buckets[buckets.length-1].label + '</span></div></div>' +
+    '<div class="card"><h3 class="card-title">Transactions this period</h3><div class="tx-list">' + recentHTML + '</div></div>';
+}
+
+/* ---------- Bookings ---------- */
+function bookingCardHTML(b){
+  var nights = nightsBetween(b.checkIn, b.checkOut);
+  var clsMap = { Confirmed:'good', Pending:'warning', Completed:'neutral', Cancelled:'critical' };
+  var cls = clsMap[b.status] || 'neutral';
+  return '<div class="booking-card" data-action="edit-booking" data-id="' + b.id + '">' +
+    '<div class="booking-card-top"><strong>' + escapeHtml(b.guestName) + '</strong><span class="badge badge-' + cls + '">' + escapeHtml(b.status) + '</span></div>' +
+    '<div class="booking-meta">#' + escapeHtml(b.bookingNumber) + ' &middot; ' + escapeHtml(b.source) + '</div>' +
+    '<div class="booking-dates">' + fmtShort(parseDateOnly(b.checkIn)) + ' → ' + fmtShort(parseDateOnly(b.checkOut)) + ' &middot; ' + nights + ' night' + (nights===1?'':'s') + '</div>' +
+    '<div class="booking-bottom"><span class="booking-amount">' + money(b.amount) + '</span></div>' +
+  '</div>';
+}
+function renderBookings(){
+  var bookingsEl = document.getElementById('tab-bookings');
+  if(!state.settings.appsScriptUrl){ bookingsEl.innerHTML = notConnectedHTML(); return; }
+  var filter = bookingsFilter;
+  var today = startOfDay(new Date());
+  var list = state.bookings.slice();
+  if(filter === 'upcoming') list = list.filter(function(b){ return parseDateOnly(b.checkOut) >= today && b.status !== 'Cancelled'; });
+  else if(filter === 'past') list = list.filter(function(b){ return parseDateOnly(b.checkOut) < today; });
+  else if(filter === 'cancelled') list = list.filter(function(b){ return b.status === 'Cancelled'; });
+
+  list.sort(function(a,b){ return filter === 'past' ? b.checkIn.localeCompare(a.checkIn) : a.checkIn.localeCompare(b.checkIn); });
+
+  var totalNights = list.reduce(function(s,b){ return s + nightsBetween(b.checkIn,b.checkOut); }, 0);
+  var totalRevenue = list.reduce(function(s,b){ return s + (Number(b.amount)||0); }, 0);
+
+  var summaryHTML = '<div class="stat-grid stat-grid-3">' +
+    '<div class="stat-tile"><div class="stat-label">Bookings</div><div class="stat-value">' + list.length + '</div></div>' +
+    '<div class="stat-tile"><div class="stat-label">Nights</div><div class="stat-value">' + totalNights + '</div></div>' +
+    '<div class="stat-tile"><div class="stat-label">Revenue</div><div class="stat-value">' + money(totalRevenue) + '</div></div>' +
+  '</div>';
+
+  var listHTML = list.length ? list.map(bookingCardHTML).join('') : '<p class="empty-hint">No bookings in this view. Tap + to add one.</p>';
+
+  bookingsEl.innerHTML =
+    '<div class="seg">' +
+      ['all','upcoming','past','cancelled'].map(function(f){
+        return '<button type="button" class="seg-btn ' + (f===filter?'active':'') + '" data-action="set-booking-filter" data-filter="' + f + '">' + (f[0].toUpperCase()+f.slice(1)) + '</button>';
+      }).join('') +
+    '</div>' + summaryHTML + '<div class="booking-list">' + listHTML + '</div>';
+}
+
+/* ---------- Settings ---------- */
+function sheetStatusLabel(){
+  if(!state.settings.appsScriptUrl) return 'Not connected yet — paste your Apps Script Web App URL below and tap "Save & connect".';
+  if(connectionStatus === 'error') return 'Could not reach the Sheet just now — will keep retrying automatically. Showing the last saved copy.';
+  if(lastLoadedAt) return 'Connected. Last refreshed ' + timeAgo(new Date(lastLoadedAt).toISOString()) + '.';
+  return 'Connected — loading…';
+}
+function guideHTML(){
+  return '<div class="guide-body">' +
+    '<p>This makes the Google Sheet the real shared database. Everyone who opens this page with the same Apps Script URL reads and writes the same Sheet &mdash; adds, edits, and deletes show up for everyone within about 25 seconds automatically, or instantly with "Refresh now".</p>' +
+    '<ol>' +
+    '<li><strong>Create the Sheet.</strong> Go to sheets.google.com and create a new blank sheet, e.g. "Sindooram Ledger — Live". It lives in your Google Drive like any other sheet.</li>' +
+    '<li><strong>Add the script.</strong> In the Sheet, go to Extensions &rarr; Apps Script, delete anything in the editor, and paste in the code below. Save it (name the project "Sindooram Sync").</li>' +
+    '<li><strong>Deploy as a Web App.</strong> Click Deploy &rarr; New deployment &rarr; gear icon &rarr; Web app. Set "Execute as" to Me, and "Who has access" to Anyone. Click Deploy and authorize it. Copy the Web app URL (ends in <code>/exec</code>).</li>' +
+    '<li><strong>Connect it here.</strong> Paste the URL into "Apps Script Web App URL" above and tap "Save &amp; connect".</li>' +
+    '</ol>' +
+    '<div class="code-block" id="scriptCode">' + escapeHtml(APPS_SCRIPT_CODE) + '</div>' +
+    '<button type="button" class="copy-btn" data-action="copy-script">Copy script</button>' +
+    '<div class="guide-note">Share this page\'s link and this same Apps Script URL with everyone who should see and edit the ledger &mdash; that\'s what makes it live for everyone.</div>' +
+    '<p><strong>Troubleshooting:</strong> if the header shows "Offline", double-check the URL was pasted in full (including <code>/exec</code>) and access is set to "Anyone". If you edit and redeploy the script later, Google issues a new URL &mdash; update it here, and ask everyone else to update their copy too.</p>' +
+    '</div>';
+}
+function renderSettings(){
+  var settingsEl = document.getElementById('tab-settings');
+  settingsEl.innerHTML =
+    '<div class="card"><h3 class="card-title">Your profile</h3>' +
+      '<label>Your name <input type="text" id="userNameInput" placeholder="e.g. Priya" value="' + escapeHtml(state.settings.userName) + '"></label>' +
+    '</div>' +
+    '<div class="card"><h3 class="card-title">Google Sheet connection</h3>' +
+      '<p class="empty-hint" style="margin-top:-4px;">The Sheet is the shared database — everyone\'s page reads and writes the same Sheet.</p>' +
+      '<label>Apps Script Web App URL <input type="url" id="appsScriptUrlInput" placeholder="https://script.google.com/macros/s/.../exec" value="' + escapeHtml(state.settings.appsScriptUrl) + '"></label>' +
+      '<div class="settings-actions">' +
+        '<button type="button" class="btn-primary" data-action="save-settings">Save &amp; connect</button>' +
+        '<button type="button" class="btn-secondary" data-action="refresh-now">Refresh now</button>' +
+      '</div>' +
+      '<p class="sync-status" id="syncStatusText">' + sheetStatusLabel() + '</p>' +
+    '</div>' +
+    '<details class="card"><summary>How to connect a Google Sheet</summary>' + guideHTML() + '</details>' +
+    '<div class="card"><h3 class="card-title">Backup</h3>' +
+      '<p class="empty-hint" style="margin-top:-4px;">Your data already lives safely in the Sheet — this just downloads a personal copy.</p>' +
+      '<div class="settings-actions">' +
+        '<button type="button" class="btn-secondary" data-action="export-data">Export snapshot (.json)</button>' +
+      '</div>' +
+    '</div>';
+}
+
+/* ---------- Transaction modal ---------- */
+var txnModalOverlay, txnForm, txnId, txnDate, txnCategory, txnSubcategory, txnDescription, txnAmount, txnAddedBy, txnDeleteBtn, txnTypeSeg, txnModalTitle;
+function getCategoryList(type){
+  var base = (type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES).slice();
+  var otherIdx = base.indexOf('Other');
+  var fixed = otherIdx !== -1 ? base.slice(0, otherIdx) : base;
+  var seen = [];
+  state.transactions.forEach(function(t){
+    if(t.type === type && fixed.indexOf(t.category) === -1 && t.category !== 'Other' && seen.indexOf(t.category) === -1){
+      seen.push(t.category);
+    }
+  });
+  return fixed.concat(seen, otherIdx !== -1 ? ['Other'] : []);
+}
+function populateCategorySelect(type, selected){
+  var cats = getCategoryList(type);
+  if(selected && cats.indexOf(selected) === -1){
+    var otherIdx = cats.indexOf('Other');
+    if(otherIdx !== -1) cats.splice(otherIdx, 0, selected); else cats.push(selected);
+  }
+  txnCategory.innerHTML = cats.map(function(c){ return '<option value="' + escapeHtml(c) + '">' + escapeHtml(c) + '</option>'; }).join('');
+  txnCategory.value = (selected && cats.indexOf(selected) !== -1) ? selected : cats[0];
+  updateSubcategoryOptions();
+}
+function updateSubcategoryOptions(){
+  var category = txnCategory.value;
+  var presets = SUBCATEGORY_PRESETS[category] || [];
+  var used = [];
+  state.transactions.forEach(function(t){
+    if(t.category === category && t.subcategory && used.indexOf(t.subcategory) === -1) used.push(t.subcategory);
+  });
+  var all = presets.concat(used.filter(function(u){ return presets.indexOf(u) === -1; }));
+  var dl = document.getElementById('subcategoryList');
+  if(dl) dl.innerHTML = all.map(function(s){ return '<option value="' + escapeHtml(s) + '"></option>'; }).join('');
+}
+function handleCategoryChange(){
+  var type = txnTypeSeg.querySelector('.seg-btn.active').dataset.type;
+  if(type === 'expense' && txnCategory.value === 'Other'){
+    var name = window.prompt('Name this expense category (e.g. "Staff Welfare"):');
+    name = name ? name.trim() : '';
+    if(name && name !== 'Other'){
+      populateCategorySelect('expense', name);
+      return;
+    }
+  }
+  updateSubcategoryOptions();
+}
+function setActiveSeg(container, dataAttr, value){
+  container.querySelectorAll('.seg-btn').forEach(function(b){ b.classList.toggle('active', b.dataset[dataAttr] === value); });
+}
+function openTxnModal(id){
+  var t = id ? state.transactions.find(function(x){ return x.id === id; }) : null;
+  txnModalTitle.textContent = t ? 'Edit Transaction' : 'Add Transaction';
+  var type = t ? t.type : 'expense';
+  setActiveSeg(txnTypeSeg, 'type', type);
+  populateCategorySelect(type, t ? t.category : null);
+  txnDate.value = t ? t.date : todayStr();
+  txnSubcategory.value = t ? (t.subcategory || '') : '';
+  txnDescription.value = t ? t.description : '';
+  txnAmount.value = t ? t.amount : '';
+  txnAddedBy.value = t ? t.addedBy : (state.settings.userName || '');
+  txnDeleteBtn.style.display = t ? 'inline-block' : 'none';
+  txnId.value = id || '';
+  showModal(txnModalOverlay);
+}
+function deleteTxn(id){
+  if(!confirm('Delete this entry? This cannot be undone.')) return;
+  mutateAndSync(function(latest){
+    return { transactions: latest.transactions.filter(function(t){ return t.id !== id; }), bookings: latest.bookings };
+  }).then(function(){ toast('Deleted'); }).catch(function(){});
+}
+
+/* ---------- Booking modal ---------- */
+var bookingModalOverlay, bookingForm, bookingIdInput, bookingNumberInput, guestNameInput, checkInInput, checkOutInput, bookingSourceSel, bookingAmountInput, bookingStatusSel, bookingAddedByInput, bookingDeleteBtn, bookingModalTitle;
+function nextBookingNumber(){ return 'BK-' + String(state.bookings.length + 1).padStart(4,'0'); }
+function openBookingModal(id){
+  var b = id ? state.bookings.find(function(x){ return x.id === id; }) : null;
+  bookingModalTitle.textContent = b ? 'Edit Booking' : 'Add Booking';
+  bookingNumberInput.value = b ? b.bookingNumber : nextBookingNumber();
+  guestNameInput.value = b ? b.guestName : '';
+  checkInInput.value = b ? b.checkIn : todayStr();
+  checkOutInput.value = b ? b.checkOut : todayStr();
+  bookingSourceSel.value = b ? b.source : BOOKING_SOURCES[0];
+  bookingAmountInput.value = b ? b.amount : '';
+  bookingStatusSel.value = b ? b.status : BOOKING_STATUSES[0];
+  bookingAddedByInput.value = b ? b.addedBy : (state.settings.userName || '');
+  bookingDeleteBtn.style.display = b ? 'inline-block' : 'none';
+  bookingIdInput.value = id || '';
+  showModal(bookingModalOverlay);
+}
+function deleteBooking(id){
+  if(!confirm('Delete this booking? This cannot be undone.')) return;
+  mutateAndSync(function(latest){
+    return { transactions: latest.transactions, bookings: latest.bookings.filter(function(b){ return b.id !== id; }) };
+  }).then(function(){ toast('Deleted'); }).catch(function(){});
+}
+
+/* ---------- Modal helpers ---------- */
+function showModal(overlay){ overlay.classList.add('open'); document.body.style.overflow = 'hidden'; }
+function hideModal(overlay){ overlay.classList.remove('open'); document.body.style.overflow = ''; }
+
+/* ---------- Sheet I/O ---------- */
+function normalizeTransactions(list){
+  return (list || []).filter(function(t){ return t && t.id; }).map(function(t){
+    return {
+      id: String(t.id),
+      type: t.type === 'income' ? 'income' : 'expense',
+      date: String(t.date || '').slice(0,10),
+      category: t.category || 'Other',
+      subcategory: t.subcategory || '',
+      description: t.description || '',
+      amount: Number(t.amount) || 0,
+      addedBy: t.addedBy || '',
+      createdAt: t.createdAt || new Date().toISOString(),
+      updatedAt: t.updatedAt || new Date().toISOString()
+    };
+  });
+}
+function normalizeBookings(list){
+  return (list || []).filter(function(b){ return b && b.id; }).map(function(b){
+    return {
+      id: String(b.id),
+      bookingNumber: b.bookingNumber || '',
+      guestName: b.guestName || '',
+      checkIn: String(b.checkIn || '').slice(0,10),
+      checkOut: String(b.checkOut || '').slice(0,10),
+      source: b.source || 'Direct',
+      amount: Number(b.amount) || 0,
+      status: b.status || 'Confirmed',
+      addedBy: b.addedBy || '',
+      createdAt: b.createdAt || new Date().toISOString(),
+      updatedAt: b.updatedAt || new Date().toISOString()
+    };
+  });
+}
+function fetchSheetData(){
+  return fetch(state.settings.appsScriptUrl, { method:'GET' }).then(function(res){
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    return res.json();
+  });
+}
+function pushSheetData(payload){
+  return fetch(state.settings.appsScriptUrl, {
+    method:'POST',
+    headers:{ 'Content-Type':'text/plain;charset=utf-8' },
+    body: JSON.stringify(payload)
+  }).then(function(res){
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    return res.json();
+  });
+}
+function setConnStatus(status){
+  connectionStatus = status;
+  var el = document.getElementById('connStatus');
+  if(!el) return;
+  var map = {
+    idle:{ cls:'off', text:'Not connected' },
+    loading:{ cls:'syncing', text:'Loading…' },
+    live:{ cls:'live', text:'Live' },
+    syncing:{ cls:'syncing', text:'Saving…' },
+    error:{ cls:'error', text:'Offline — showing last saved copy' }
+  };
+  var m = map[status] || map.idle;
+  el.innerHTML = '<span class="conn-dot conn-dot-' + m.cls + '"></span>' + m.text;
+}
+function loadFromSheet(silent){
+  if(!state.settings.appsScriptUrl){ setConnStatus('idle'); renderCurrentTab(); return Promise.resolve(); }
+  if(!silent) setConnStatus('loading');
+  return fetchSheetData().then(function(data){
+    state.transactions = normalizeTransactions(data.transactions);
+    state.bookings = normalizeBookings(data.bookings);
+    cacheLocally();
+    lastLoadedAt = Date.now();
+    setConnStatus('live');
+    renderCurrentTab();
+  }).catch(function(){
+    setConnStatus('error');
+    if(!silent) toast('Could not reach the Sheet — showing last saved copy');
+    renderCurrentTab();
+  });
+}
+function startPolling(){
+  clearInterval(pollTimer);
+  pollTimer = setInterval(function(){
+    if(isSaving) return;
+    if(txnModalOverlay.classList.contains('open') || bookingModalOverlay.classList.contains('open')) return;
+    loadFromSheet(true);
+  }, POLL_INTERVAL_MS);
+}
+function mutateAndSync(mutator){
+  if(!state.settings.appsScriptUrl){ toast('Connect your Google Sheet in Settings first'); return Promise.reject(new Error('not connected')); }
+  isSaving = true;
+  setConnStatus('syncing');
+  return fetchSheetData().then(function(latest){
+    var merged = mutator({
+      transactions: normalizeTransactions(latest.transactions),
+      bookings: normalizeBookings(latest.bookings)
+    });
+    return pushSheetData(merged);
+  }).then(function(saved){
+    state.transactions = normalizeTransactions(saved.transactions);
+    state.bookings = normalizeBookings(saved.bookings);
+    cacheLocally();
+    lastLoadedAt = Date.now();
+    isSaving = false;
+    setConnStatus('live');
+    renderCurrentTab();
+  }).catch(function(err){
+    isSaving = false;
+    setConnStatus('error');
+    toast('Could not save — check your connection and try again');
+    throw err;
+  });
+}
+
+/* ---------- Settings actions ---------- */
+function saveSettingsFromForm(){
+  state.settings.userName = document.getElementById('userNameInput').value.trim();
+  var newUrl = document.getElementById('appsScriptUrlInput').value.trim();
+  var urlChanged = newUrl !== state.settings.appsScriptUrl;
+  state.settings.appsScriptUrl = newUrl;
+  saveSettings();
+  toast('Settings saved');
+  if(state.settings.appsScriptUrl){
+    loadFromSheet(false);
+    if(urlChanged) startPolling();
+  } else {
+    setConnStatus('idle');
+    renderCurrentTab();
+  }
+}
+function exportData(){
+  var payload = { transactions: state.transactions, bookings: state.bookings, exportedAt: new Date().toISOString() };
+  var blob = new Blob([JSON.stringify(payload, null, 2)], { type:'application/json' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url; a.download = 'sindooram-ledger-snapshot-' + todayStr() + '.json';
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+function copyScript(){
+  var text = document.getElementById('scriptCode') ? document.getElementById('scriptCode').textContent : APPS_SCRIPT_CODE;
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(function(){ toast('Script copied'); }).catch(function(){ toast('Could not copy — select manually'); });
+  }else{
+    toast('Could not copy — select manually');
+  }
+}
+
+/* ---------- Global click delegation ---------- */
+document.addEventListener('click', function(e){
+  var el = e.target.closest('[data-action]');
+  if(!el) return;
+  var action = el.dataset.action;
+  switch(action){
+    case 'switch-tab': switchTab(el.dataset.tab); break;
+    case 'fab-click': if(currentTab === 'bookings') openBookingModal(); else openTxnModal(); break;
+    case 'set-gran': dashGran = el.dataset.gran; dashOffset = 0; renderDashboard(); break;
+    case 'period-prev': dashOffset -= 1; renderDashboard(); break;
+    case 'period-next': if(dashOffset < 0){ dashOffset += 1; renderDashboard(); } break;
+    case 'edit-txn': openTxnModal(el.dataset.id); break;
+    case 'close-txn-modal': hideModal(txnModalOverlay); break;
+    case 'delete-txn-from-modal': if(txnId.value){ deleteTxn(txnId.value); hideModal(txnModalOverlay); } break;
+    case 'set-type': setActiveSeg(txnTypeSeg, 'type', el.dataset.type); populateCategorySelect(el.dataset.type); break;
+    case 'set-booking-filter': bookingsFilter = el.dataset.filter; renderBookings(); break;
+    case 'edit-booking': openBookingModal(el.dataset.id); break;
+    case 'close-booking-modal': hideModal(bookingModalOverlay); break;
+    case 'delete-booking-from-modal': if(bookingIdInput.value){ deleteBooking(bookingIdInput.value); hideModal(bookingModalOverlay); } break;
+    case 'save-settings': saveSettingsFromForm(); break;
+    case 'refresh-now': loadFromSheet(false).then(function(){ toast('Refreshed'); }); break;
+    case 'export-data': exportData(); break;
+    case 'copy-script': copyScript(); break;
+  }
+});
+
+/* ---------- Init ---------- */
+function init(){
+  loadState();
+
+  txnModalOverlay = document.getElementById('txnModalOverlay');
+  txnForm = document.getElementById('txnForm');
+  txnId = document.getElementById('txnId');
+  txnDate = document.getElementById('txnDate');
+  txnCategory = document.getElementById('txnCategory');
+  txnSubcategory = document.getElementById('txnSubcategory');
+  txnDescription = document.getElementById('txnDescription');
+  txnAmount = document.getElementById('txnAmount');
+  txnAddedBy = document.getElementById('txnAddedBy');
+  txnDeleteBtn = document.getElementById('txnDeleteBtn');
+  txnTypeSeg = document.getElementById('txnTypeSeg');
+  txnModalTitle = document.getElementById('txnModalTitle');
+
+  bookingModalOverlay = document.getElementById('bookingModalOverlay');
+  bookingForm = document.getElementById('bookingForm');
+  bookingIdInput = document.getElementById('bookingId');
+  bookingNumberInput = document.getElementById('bookingNumber');
+  guestNameInput = document.getElementById('guestName');
+  checkInInput = document.getElementById('checkIn');
+  checkOutInput = document.getElementById('checkOut');
+  bookingSourceSel = document.getElementById('bookingSource');
+  bookingAmountInput = document.getElementById('bookingAmount');
+  bookingStatusSel = document.getElementById('bookingStatus');
+  bookingAddedByInput = document.getElementById('bookingAddedBy');
+  bookingDeleteBtn = document.getElementById('bookingDeleteBtn');
+  bookingModalTitle = document.getElementById('bookingModalTitle');
+
+  bookingSourceSel.innerHTML = BOOKING_SOURCES.map(function(s){ return '<option value="'+escapeHtml(s)+'">'+escapeHtml(s)+'</option>'; }).join('');
+  bookingStatusSel.innerHTML = BOOKING_STATUSES.map(function(s){ return '<option value="'+escapeHtml(s)+'">'+escapeHtml(s)+'</option>'; }).join('');
+
+  document.getElementById('fabAdd').addEventListener('click', function(){
+    if(!state.settings.appsScriptUrl){ toast('Connect your Google Sheet in Settings first'); switchTab('settings'); return; }
+    if(currentTab === 'bookings') openBookingModal(); else openTxnModal();
+  });
+
+  txnCategory.addEventListener('change', handleCategoryChange);
+
+  txnModalOverlay.addEventListener('click', function(e){ if(e.target === txnModalOverlay) hideModal(txnModalOverlay); });
+  bookingModalOverlay.addEventListener('click', function(e){ if(e.target === bookingModalOverlay) hideModal(bookingModalOverlay); });
+
+  txnForm.addEventListener('submit', function(e){
+    e.preventDefault();
+    var type = txnTypeSeg.querySelector('.seg-btn.active').dataset.type;
+    var id = txnId.value || uid('t_');
+    var existing = txnId.value ? state.transactions.find(function(t){ return t.id === id; }) : null;
+    var txn = {
+      id:id, type:type,
+      date: txnDate.value,
+      category: txnCategory.value,
+      subcategory: txnSubcategory.value.trim(),
+      description: txnDescription.value.trim(),
+      amount: parseFloat(txnAmount.value) || 0,
+      addedBy: txnAddedBy.value.trim() || state.settings.userName || 'Unknown',
+      createdAt: existing ? existing.createdAt : new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    hideModal(txnModalOverlay);
+    toast('Saving…');
+    mutateAndSync(function(latest){
+      var list = latest.transactions.slice();
+      var idx = list.findIndex(function(t){ return t.id === id; });
+      if(idx >= 0) list[idx] = txn; else list.push(txn);
+      return { transactions:list, bookings: latest.bookings };
+    }).then(function(){ toast('Saved'); }).catch(function(){});
+  });
+
+  bookingForm.addEventListener('submit', function(e){
+    e.preventDefault();
+    var id = bookingIdInput.value || uid('b_');
+    var existing = bookingIdInput.value ? state.bookings.find(function(b){ return b.id === id; }) : null;
+    var booking = {
+      id:id,
+      bookingNumber: bookingNumberInput.value.trim(),
+      guestName: guestNameInput.value.trim(),
+      checkIn: checkInInput.value,
+      checkOut: checkOutInput.value,
+      source: bookingSourceSel.value,
+      amount: parseFloat(bookingAmountInput.value) || 0,
+      status: bookingStatusSel.value,
+      addedBy: bookingAddedByInput.value.trim() || state.settings.userName || 'Unknown',
+      createdAt: existing ? existing.createdAt : new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    hideModal(bookingModalOverlay);
+    toast('Saving…');
+    mutateAndSync(function(latest){
+      var list = latest.bookings.slice();
+      var idx = list.findIndex(function(b){ return b.id === id; });
+      if(idx >= 0) list[idx] = booking; else list.push(booking);
+      return { transactions: latest.transactions, bookings: list };
+    }).then(function(){ toast('Saved'); }).catch(function(){});
+  });
+
+  setConnStatus(state.settings.appsScriptUrl ? 'loading' : 'idle');
+  switchTab('dashboard');
+  if(state.settings.appsScriptUrl){
+    loadFromSheet(false);
+    startPolling();
+  }
+}
+
+init();
+</script>
+</body>
+</html>
