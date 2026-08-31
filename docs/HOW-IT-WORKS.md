@@ -53,6 +53,8 @@ The page is a basic installable web app (PWA):
   "Install app".
 - **iPhone/Safari:** open the link → Share button → "Add to Home Screen".
 
+Details on how this was built: [MOBILE-APP-SETUP.md](MOBILE-APP-SETUP.md).
+
 Either way it gets a real icon and opens full-screen, no browser bar.
 
 ## Repo layout
