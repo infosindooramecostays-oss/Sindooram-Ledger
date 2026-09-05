@@ -200,10 +200,6 @@ input:focus, select:focus{ outline:none; border-color:var(--accent); box-shadow:
 .hero-stat .stat-delta.up{ color:#baffc9; }
 .hero-stat .stat-delta.down{ color:#ffd0e0; }
 
-.mini-row{ display:flex; justify-content:space-between; align-items:center; background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:14px 16px; margin-bottom:14px; box-shadow:var(--shadow-1); font-size:13.5px; }
-.mini-row-label{ color:var(--text-secondary); }
-.mini-row-value{ font-weight:700; }
-
 .stat-grid{ display:grid; grid-template-columns:repeat(2,1fr); gap:10px; margin-bottom:14px; }
 .stat-grid-3{ grid-template-columns:repeat(3,1fr); }
 @media (min-width:560px){ .stat-grid{ grid-template-columns:repeat(4,1fr); } }
@@ -456,10 +452,6 @@ details.card summary:hover{ color:var(--accent); }
     </div>
     <form id="txnForm">
       <input type="hidden" id="txnId">
-      <div class="seg" id="txnTypeSeg">
-        <button type="button" class="seg-btn active" data-action="set-type" data-type="expense">Expense</button>
-        <button type="button" class="seg-btn" data-action="set-type" data-type="income">Income</button>
-      </div>
 
       <div class="amount-field">
         <span class="amount-currency">₹</span>
@@ -934,12 +926,23 @@ function filterInRange(list, range, field){
     return d >= range.start && d <= range.end;
   });
 }
-function summarize(txns){
-  var income = 0, expenses = 0, byCat = {};
-  txns.forEach(function(t){
+// Income is Bookings revenue, not manually-logged transactions — a booking's
+// amount counts for whichever period its check-in date falls in. Expenses
+// still come from transactions (any legacy 'income' transactions are simply
+// not counted here; they still show in the transaction list, just not the
+// stat totals).
+function computePeriodFinancials(range){
+  var expenses = 0, byCat = {};
+  filterInRange(state.transactions, range).forEach(function(t){
+    if(t.type === 'income') return;
     var amt = Number(t.amount) || 0;
-    if(t.type === 'income'){ income += amt; }
-    else { expenses += amt; byCat[t.category] = (byCat[t.category] || 0) + amt; }
+    expenses += amt;
+    byCat[t.category] = (byCat[t.category] || 0) + amt;
+  });
+  var income = 0;
+  state.bookings.forEach(function(b){
+    var d = parseDateOnly(b.checkIn);
+    if(d >= range.start && d <= range.end) income += Number(b.amount) || 0;
   });
   return { income:income, expenses:expenses, net:income-expenses, byCat:byCat };
 }
@@ -949,12 +952,15 @@ function computeTrendBuckets(gran, count){
     var d = parseDateOnly(t.date);
     if(!earliest || d < earliest) earliest = d;
   });
+  state.bookings.forEach(function(b){
+    var d = parseDateOnly(b.checkIn);
+    if(!earliest || d < earliest) earliest = d;
+  });
   var buckets = [];
   for(var i = count-1; i >= 0; i--){
     var range = getRange(gran, -i);
     if(earliest && range.end < earliest) continue;
-    var list = filterInRange(state.transactions, range);
-    var s = summarize(list);
+    var s = computePeriodFinancials(range);
     buckets.push({ label: range.label, net: s.net });
   }
   if(buckets.length === 0){
@@ -971,8 +977,7 @@ function computeMonthlyYearBuckets(year){
     var start = new Date(year, m, 1);
     var end = endOfDay(new Date(year, m+1, 0));
     var label = start.toLocaleDateString('en-IN', { month:'short' });
-    var list = filterInRange(state.transactions, { start:start, end:end });
-    var s = summarize(list);
+    var s = computePeriodFinancials({ start:start, end:end });
     buckets.push({ label:label, net:s.net });
   }
   return buckets;
@@ -1100,14 +1105,13 @@ var TOUR_STEPS = [
   { tab:'dashboard', selector:'#granSeg', title:'Switch time ranges', body:'Tap Daily, Weekly, Monthly, or YTD to change what the whole dashboard shows.' },
   { tab:'dashboard', selector:'#periodNav', title:'Browse other periods', body:'Use the arrows to step to the previous or next day/week/month/year.' },
   { tab:'dashboard', selector:'.hero-stat', title:'Your net balance', body:'The big number is income minus expenses for whichever period you’ve selected above.' },
-  { tab:'dashboard', selector:'#tab-dashboard .stat-grid', title:'Income & expenses', body:'A closer breakdown of the same period, with the change versus last time.' },
-  { tab:'dashboard', selector:'#tab-dashboard .mini-row', title:'Bookings revenue', body:'Revenue from guest bookings that fall in this period.' },
+  { tab:'dashboard', selector:'#tab-dashboard .stat-grid', title:'Income & expenses', body:'Income here is your Bookings revenue for this period; Expenses is the total of everything logged below.' },
   { tab:'dashboard', selector:'#expenseBreakdownCard', title:'Expense breakdown', body:'Where the money went, by category, largest first.' },
   { tab:'dashboard', selector:'#trendCard', title:'Net trend', body:'Drag your finger across the chart to see the exact number for each point.' },
   { tab:'dashboard', selector:'.tx-list', title:'Transactions list', body:'Tap any entry to edit it, or tap the trash icon to delete it right away.' },
-  { tab:'dashboard', selector:'#fabAdd', title:'Add an expense or income', body:'Tap this while on Dashboard to log a new expense or income entry.' },
+  { tab:'dashboard', selector:'#fabAdd', title:'Add an expense', body:'Tap this while on Dashboard to log a new expense. Income is tracked separately, from your bookings.' },
   // Opens the Add Transaction form (modal:'txn') to walk through its fields.
-  { tab:'dashboard', modal:'txn', selector:'#txnModalOverlay .amount-field', title:'Enter the amount', body:'Switch between Expense and Income at the top of this form.' },
+  { tab:'dashboard', modal:'txn', selector:'#txnModalOverlay .amount-field', title:'Enter the amount', body:'How much the expense cost.' },
   { tab:'dashboard', modal:'txn', selector:'#txnCategoryGroup', title:'Category', body:'Pick one, or choose "+ Add new…" to create your own — it saves for everyone.' },
   { tab:'dashboard', modal:'txn', selector:'#txnSubcategoryGroup', title:'Sub-category (optional)', body:'Extra detail like "Electricity Bill" under Fixed Expenses. Also supports "+ Add new…".' },
   { tab:'dashboard', modal:'txn', selector:'#txnRecurrenceGroup', title:'Mark it as recurring', body:'Tag repeating costs like salaries or bills — it\'s just a label, nothing gets created automatically.' },
@@ -1122,7 +1126,7 @@ var TOUR_STEPS = [
   { tab:'bookings', modal:'booking', selector:'#bookingDatesRow', title:'Check-in & check-out', body:'The stay dates — nights are worked out for you automatically.' },
   { tab:'bookings', modal:'booking', selector:'#bookingSourceStatusRow', title:'Source & status', body:'Where the booking came from, and whether it\'s confirmed, pending, completed, or cancelled.' },
   { tab:'bookings', modal:'booking', selector:'#bookingModalOverlay .modal-footer', title:'Save it', body:'Same as expenses — saves straight to the shared Sheet.' },
-  { tab:null, selector:null, title:'You’re all set!', body:'Start logging expenses, income, and bookings — everyone connected will see it live.' }
+  { tab:null, selector:null, title:'You’re all set!', body:'Start logging expenses and bookings — income is tracked automatically from bookings, and everyone connected will see it live.' }
 ];
 var tourStepIndex = 0;
 
@@ -1302,22 +1306,9 @@ function renderDashboard(){
   var dashboardEl = document.getElementById('tab-dashboard');
   if(!state.settings.appsScriptUrl){ dashboardEl.innerHTML = notConnectedHTML(); return; }
   var range = getRange(dashGran, dashOffset);
-  var list = filterInRange(state.transactions, range);
-  var summary = summarize(list);
+  var summary = computePeriodFinancials(range);
   var prevRange = getRange(dashGran, dashOffset - 1);
-  var prevList = filterInRange(state.transactions, prevRange);
-  var prevSummary = summarize(prevList);
-
-  var bookingsInRange = state.bookings.filter(function(b){
-    var ci = parseDateOnly(b.checkIn);
-    return ci >= range.start && ci <= range.end;
-  });
-  var bookingsRevenue = bookingsInRange.reduce(function(s,b){ return s + (Number(b.amount)||0); }, 0);
-  var prevBookings = state.bookings.filter(function(b){
-    var ci = parseDateOnly(b.checkIn);
-    return ci >= prevRange.start && ci <= prevRange.end;
-  });
-  var prevBookingsRevenue = prevBookings.reduce(function(s,b){ return s + (Number(b.amount)||0); }, 0);
+  var prevSummary = computePeriodFinancials(prevRange);
 
   var heroHTML = '<div class="hero-stat">' +
     '<div class="hero-stat-top"><span class="hero-stat-label">Net balance</span>' + deltaHTML(summary.net, prevSummary.net, false) + '</div>' +
@@ -1325,7 +1316,6 @@ function renderDashboard(){
   '</div>';
   var tiles = tileHTML('Income', summary.income, prevSummary.income, false) +
     tileHTML('Expenses', summary.expenses, prevSummary.expenses, true);
-  var bookingsRow = '<div class="mini-row"><span class="mini-row-label">Bookings revenue this period</span><span class="mini-row-value">' + money(bookingsRevenue) + '</span></div>';
 
   var catEntries = Object.keys(summary.byCat).map(function(k){ return [k, summary.byCat[k]]; }).sort(function(a,b){ return b[1]-a[1]; });
   var maxCat = catEntries.length ? catEntries[0][1] : 0;
@@ -1339,6 +1329,7 @@ function renderDashboard(){
   var trend = getDashboardTrend(range);
   var buckets = trend.buckets;
 
+  var list = filterInRange(state.transactions, range);
   var sortedList = list.slice().sort(function(a,b){ return (b.date+b.createdAt).localeCompare(a.date+a.createdAt); });
   var recentHTML = sortedList.length ? sortedList.map(txnRowHTML).join('') : '<p class="empty-hint">No transactions yet for this period. Tap the + button to add one.</p>';
 
@@ -1355,7 +1346,6 @@ function renderDashboard(){
     '</div>' +
     heroHTML +
     '<div class="stat-grid">' + tiles + '</div>' +
-    bookingsRow +
     '<div class="card" id="expenseBreakdownCard"><h3 class="card-title">Expense breakdown</h3>' + catHTML + '</div>' +
     '<div class="card" id="trendCard"><h3 class="card-title">' + trend.title + '</h3>' + renderSparkline(buckets) +
       '<div class="spark-labels"><span>' + buckets[0].label + '</span><span>' + buckets[buckets.length-1].label + '</span></div>' +
@@ -1467,8 +1457,12 @@ function renderSettings(){
 }
 
 /* ---------- Transaction modal ---------- */
-var txnModalOverlay, txnForm, txnId, txnDate, txnCategory, txnCategoryOther, txnSubcategory, txnSubcategoryOther, txnRecurrence, txnRecurrenceOther, txnDescription, txnAmount, txnAddedBy, txnDeleteBtn, txnTypeSeg, txnModalTitle;
+var txnModalOverlay, txnForm, txnId, txnDate, txnCategory, txnCategoryOther, txnSubcategory, txnSubcategoryOther, txnRecurrence, txnRecurrenceOther, txnDescription, txnAmount, txnAddedBy, txnDeleteBtn, txnModalTitle;
 var ADD_NEW_VALUE = '__addnew__';
+// Income is no longer manually entered — it's derived from Bookings revenue
+// (see computePeriodFinancials). New transactions are always expenses; this
+// only stays 'income' when editing an entry saved before that change.
+var currentTxnModalType = 'expense';
 function getCategoryList(type){
   var base = (type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES).slice();
   var seen = [];
@@ -1548,7 +1542,7 @@ function updateSubcategoryOptions(selectedSub){
   setComboValue(txnSubcategory, txnSubcategoryOther, current, all, true, true);
 }
 function renameCategoryPrompt(){
-  var type = txnTypeSeg.querySelector('.seg-btn.active').dataset.type;
+  var type = currentTxnModalType;
   var current = getComboValue(txnCategory, txnCategoryOther);
   if(!current){ toast('Type or pick a category first'); return; }
   var name = window.prompt('Rename "' + current + '" to:', current);
@@ -1571,7 +1565,7 @@ function renameCategoryPrompt(){
   }).catch(function(){});
 }
 function renameSubcategoryPrompt(){
-  var type = txnTypeSeg.querySelector('.seg-btn.active').dataset.type;
+  var type = currentTxnModalType;
   var category = getComboValue(txnCategory, txnCategoryOther);
   var current = getComboValue(txnSubcategory, txnSubcategoryOther);
   if(!current){ toast('Type or pick a sub-category first'); return; }
@@ -1593,14 +1587,11 @@ function renameSubcategoryPrompt(){
     toast('Renamed');
   }).catch(function(){});
 }
-function setActiveSeg(container, dataAttr, value){
-  container.querySelectorAll('.seg-btn').forEach(function(b){ b.classList.toggle('active', b.dataset[dataAttr] === value); });
-}
 function openTxnModal(id){
   var t = id ? state.transactions.find(function(x){ return x.id === id; }) : null;
-  txnModalTitle.textContent = t ? 'Edit Transaction' : 'Add Transaction';
   var type = t ? t.type : 'expense';
-  setActiveSeg(txnTypeSeg, 'type', type);
+  currentTxnModalType = type;
+  txnModalTitle.textContent = t ? (type === 'income' ? 'Edit Income Entry' : 'Edit Expense') : 'Add Expense';
   populateCategorySelect(type, t ? t.category : null);
   updateSubcategoryOptions(t ? (t.subcategory || '') : '');
   setComboValue(txnRecurrence, txnRecurrenceOther, t ? (t.recurrence || 'One-off') : 'One-off', getRecurrenceList(), false);
@@ -1860,7 +1851,6 @@ document.addEventListener('click', function(e){
     case 'edit-txn': openTxnModal(el.dataset.id); break;
     case 'close-txn-modal': hideModal(txnModalOverlay); break;
     case 'delete-txn-from-modal': if(txnId.value){ deleteTxn(txnId.value); hideModal(txnModalOverlay); } break;
-    case 'set-type': setActiveSeg(txnTypeSeg, 'type', el.dataset.type); populateCategorySelect(el.dataset.type); break;
     case 'rename-category': renameCategoryPrompt(); break;
     case 'rename-subcategory': renameSubcategoryPrompt(); break;
     case 'rename-booking-status': renameBookingStatusPrompt(); break;
@@ -1900,7 +1890,6 @@ function init(){
   txnAmount = document.getElementById('txnAmount');
   txnAddedBy = document.getElementById('txnAddedBy');
   txnDeleteBtn = document.getElementById('txnDeleteBtn');
-  txnTypeSeg = document.getElementById('txnTypeSeg');
   txnModalTitle = document.getElementById('txnModalTitle');
 
   bookingModalOverlay = document.getElementById('bookingModalOverlay');
@@ -1939,7 +1928,7 @@ function init(){
 
   txnForm.addEventListener('submit', function(e){
     e.preventDefault();
-    var type = txnTypeSeg.querySelector('.seg-btn.active').dataset.type;
+    var type = currentTxnModalType;
     var id = txnId.value || uid('t_');
     var existing = txnId.value ? state.transactions.find(function(t){ return t.id === id; }) : null;
     var txn = {
