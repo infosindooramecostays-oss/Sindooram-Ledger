@@ -18,7 +18,7 @@ function readAll() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   return {
     transactions: readSheet(ss, 'Transactions', ['id','type','date','category','subcategory','description','amount','addedBy','recurrence','createdAt','updatedAt']),
-    bookings: readSheet(ss, 'Bookings', ['id','bookingNumber','guestName','checkIn','checkOut','source','amount','status','addedBy','createdAt','updatedAt'])
+    bookings: readSheet(ss, 'Bookings', ['id','bookingNumber','guestName','guestEmail','guestPhone','checkIn','checkOut','source','amount','status','remarks','addedBy','createdAt','updatedAt'])
   };
 }
 
@@ -87,14 +87,14 @@ function writeTransactions(ss, transactions) {
 function writeBookings(ss, bookings) {
   var sheet = ss.getSheetByName('Bookings') || ss.insertSheet('Bookings');
   sheet.clear();
-  var headers = ['ID', 'Booking Number', 'Guest', 'Check-in', 'Check-out', 'Source', 'Amount', 'Status', 'Added By', 'Created At', 'Updated At'];
+  var headers = ['ID', 'Booking Number', 'Guest', 'Guest Email', 'Guest Phone', 'Check-in', 'Check-out', 'Source', 'Amount', 'Status', 'Remarks', 'Added By', 'Created At', 'Updated At'];
   sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
   if (bookings.length > 0) {
     var rows = bookings.map(function (b) {
-      return [b.id, b.bookingNumber, b.guestName, forceText(b.checkIn), forceText(b.checkOut), b.source, b.amount, b.status, b.addedBy, forceText(b.createdAt), forceText(b.updatedAt)];
+      return [b.id, b.bookingNumber, b.guestName, b.guestEmail || '', b.guestPhone || '', forceText(b.checkIn), forceText(b.checkOut), b.source, b.amount, b.status, b.remarks || '', b.addedBy, forceText(b.createdAt), forceText(b.updatedAt)];
     });
-    sheet.getRange(2, 4, rows.length, 2).setNumberFormat('@');
-    sheet.getRange(2, 10, rows.length, 2).setNumberFormat('@');
+    sheet.getRange(2, 6, rows.length, 2).setNumberFormat('@');
+    sheet.getRange(2, 13, rows.length, 2).setNumberFormat('@');
     SpreadsheetApp.flush();
     sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
   }

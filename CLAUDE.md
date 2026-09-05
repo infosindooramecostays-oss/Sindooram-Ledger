@@ -8,7 +8,6 @@ Only elaborate if something breaks or needs clarification.
 Don't show every code change being made.
 
 Before Acting
-
 When Asked a Question
 do your assessment and provide a simple narrative-style
 response first, then start action after receiving confirmation from me.

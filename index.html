@@ -306,6 +306,7 @@ input:focus, select:focus{ outline:none; border-color:var(--accent); box-shadow:
   font-weight:500;
 }
 .field-other-input{ margin-top:8px; }
+textarea.field-input{ font-family:inherit; resize:vertical; min-height:44px; }
 select.field-input{
   appearance:none; -webkit-appearance:none; -moz-appearance:none;
   padding-right:42px; cursor:pointer;
@@ -527,6 +528,16 @@ details.card summary:hover{ color:var(--accent); }
         <label class="field-label">Guest name</label>
         <input required type="text" id="guestName" class="field-input">
       </div>
+      <div class="field-row" id="bookingContactRow">
+        <div class="field-group">
+          <label class="field-label">Guest email <span class="field-optional">optional</span></label>
+          <input type="email" id="guestEmail" class="field-input" placeholder="name@example.com">
+        </div>
+        <div class="field-group">
+          <label class="field-label">Guest phone <span class="field-optional">optional</span></label>
+          <input type="tel" id="guestPhone" class="field-input" placeholder="+91 98765 43210">
+        </div>
+      </div>
       <div class="field-row" id="bookingDatesRow">
         <div class="field-group">
           <label class="field-label">Check-in</label>
@@ -543,9 +554,17 @@ details.card summary:hover{ color:var(--accent); }
           <select id="bookingSource" class="field-input"></select>
         </div>
         <div class="field-group">
-          <label class="field-label">Status</label>
+          <div class="field-label-row">
+            <label class="field-label">Status</label>
+            <button type="button" class="field-edit-btn" data-action="rename-booking-status" aria-label="Rename status"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></button>
+          </div>
           <select id="bookingStatus" class="field-input"></select>
+          <input type="text" id="bookingStatusOther" class="field-input field-other-input" placeholder="New status name" style="display:none;">
         </div>
+      </div>
+      <div class="field-group">
+        <label class="field-label">Remarks <span class="field-optional">optional</span></label>
+        <textarea id="bookingRemarks" class="field-input" rows="2" placeholder="Any notes about this booking"></textarea>
       </div>
       <div class="field-group">
         <label class="field-label">Booking number</label>
@@ -639,7 +658,7 @@ var APPS_SCRIPT_CODE =
 '  var ss = SpreadsheetApp.getActiveSpreadsheet();\n' +
 '  return {\n' +
 '    transactions: readSheet(ss, \'Transactions\', [\'id\',\'type\',\'date\',\'category\',\'subcategory\',\'description\',\'amount\',\'addedBy\',\'recurrence\',\'createdAt\',\'updatedAt\']),\n' +
-'    bookings: readSheet(ss, \'Bookings\', [\'id\',\'bookingNumber\',\'guestName\',\'checkIn\',\'checkOut\',\'source\',\'amount\',\'status\',\'addedBy\',\'createdAt\',\'updatedAt\'])\n' +
+'    bookings: readSheet(ss, \'Bookings\', [\'id\',\'bookingNumber\',\'guestName\',\'guestEmail\',\'guestPhone\',\'checkIn\',\'checkOut\',\'source\',\'amount\',\'status\',\'remarks\',\'addedBy\',\'createdAt\',\'updatedAt\'])\n' +
 '  };\n' +
 '}\n\n' +
 '// Wraps an object as the JSON response the app expects.\n' +
@@ -702,14 +721,14 @@ var APPS_SCRIPT_CODE =
 'function writeBookings(ss, bookings) {\n' +
 '  var sheet = ss.getSheetByName(\'Bookings\') || ss.insertSheet(\'Bookings\');\n' +
 '  sheet.clear();\n' +
-'  var headers = [\'ID\', \'Booking Number\', \'Guest\', \'Check-in\', \'Check-out\', \'Source\', \'Amount\', \'Status\', \'Added By\', \'Created At\', \'Updated At\'];\n' +
+'  var headers = [\'ID\', \'Booking Number\', \'Guest\', \'Guest Email\', \'Guest Phone\', \'Check-in\', \'Check-out\', \'Source\', \'Amount\', \'Status\', \'Remarks\', \'Added By\', \'Created At\', \'Updated At\'];\n' +
 '  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);\n' +
 '  if (bookings.length > 0) {\n' +
 '    var rows = bookings.map(function (b) {\n' +
-'      return [b.id, b.bookingNumber, b.guestName, forceText(b.checkIn), forceText(b.checkOut), b.source, b.amount, b.status, b.addedBy, forceText(b.createdAt), forceText(b.updatedAt)];\n' +
+'      return [b.id, b.bookingNumber, b.guestName, b.guestEmail || \'\', b.guestPhone || \'\', forceText(b.checkIn), forceText(b.checkOut), b.source, b.amount, b.status, b.remarks || \'\', b.addedBy, forceText(b.createdAt), forceText(b.updatedAt)];\n' +
 '    });\n' +
-'    sheet.getRange(2, 4, rows.length, 2).setNumberFormat(\'@\');\n' +
-'    sheet.getRange(2, 10, rows.length, 2).setNumberFormat(\'@\');\n' +
+'    sheet.getRange(2, 6, rows.length, 2).setNumberFormat(\'@\');\n' +
+'    sheet.getRange(2, 13, rows.length, 2).setNumberFormat(\'@\');\n' +
 '    SpreadsheetApp.flush();\n' +
 '    sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);\n' +
 '  }\n' +
@@ -1494,22 +1513,53 @@ function deleteTxn(id){
 }
 
 /* ---------- Booking modal ---------- */
-var bookingModalOverlay, bookingForm, bookingIdInput, bookingNumberInput, guestNameInput, checkInInput, checkOutInput, bookingSourceSel, bookingAmountInput, bookingStatusSel, bookingAddedByInput, bookingDeleteBtn, bookingModalTitle;
+var bookingModalOverlay, bookingForm, bookingIdInput, bookingNumberInput, guestNameInput, guestEmailInput, guestPhoneInput, checkInInput, checkOutInput, bookingSourceSel, bookingAmountInput, bookingStatusSel, bookingStatusOther, bookingRemarksInput, bookingAddedByInput, bookingDeleteBtn, bookingModalTitle;
 function nextBookingNumber(){ return 'BK-' + String(state.bookings.length + 1).padStart(4,'0'); }
+function getBookingStatusList(){
+  var seen = [];
+  state.bookings.forEach(function(b){
+    if(BOOKING_STATUSES.indexOf(b.status) === -1 && seen.indexOf(b.status) === -1) seen.push(b.status);
+  });
+  return BOOKING_STATUSES.concat(seen);
+}
 function openBookingModal(id){
   var b = id ? state.bookings.find(function(x){ return x.id === id; }) : null;
   bookingModalTitle.textContent = b ? 'Edit Booking' : 'Add Booking';
   bookingNumberInput.value = b ? b.bookingNumber : nextBookingNumber();
   guestNameInput.value = b ? b.guestName : '';
+  guestEmailInput.value = b ? (b.guestEmail || '') : '';
+  guestPhoneInput.value = b ? (b.guestPhone || '') : '';
   checkInInput.value = b ? b.checkIn : todayStr();
   checkOutInput.value = b ? b.checkOut : todayStr();
   bookingSourceSel.value = b ? b.source : BOOKING_SOURCES[0];
   bookingAmountInput.value = b ? b.amount : '';
-  bookingStatusSel.value = b ? b.status : BOOKING_STATUSES[0];
+  setComboValue(bookingStatusSel, bookingStatusOther, b ? b.status : BOOKING_STATUSES[0], getBookingStatusList(), false, false);
+  bookingRemarksInput.value = b ? (b.remarks || '') : '';
   bookingAddedByInput.value = b ? b.addedBy : (state.settings.userName || '');
   bookingDeleteBtn.style.display = b ? 'inline-block' : 'none';
   bookingIdInput.value = id || '';
   showModal(bookingModalOverlay);
+}
+function renameBookingStatusPrompt(){
+  var current = getComboValue(bookingStatusSel, bookingStatusOther);
+  if(!current){ toast('Pick a status first'); return; }
+  var name = window.prompt('Rename "' + current + '" to:', current);
+  name = name ? name.trim() : '';
+  if(!name || name === current) return;
+  if(!confirm('Rename "' + current + '" to "' + name + '" everywhere, including past bookings?')) return;
+  toast('Renaming…');
+  mutateAndSync(function(latest){
+    var bookings = latest.bookings.map(function(b){
+      if(b.status === current){
+        return Object.assign({}, b, { status: name, updatedAt: new Date().toISOString() });
+      }
+      return b;
+    });
+    return { transactions: latest.transactions, bookings: bookings };
+  }).then(function(){
+    setComboValue(bookingStatusSel, bookingStatusOther, name, getBookingStatusList(), false, false);
+    toast('Renamed');
+  }).catch(function(){});
 }
 function deleteBooking(id){
   if(!confirm('Delete this booking? This cannot be undone.')) return;
@@ -1546,11 +1596,14 @@ function normalizeBookings(list){
       id: String(b.id),
       bookingNumber: b.bookingNumber || '',
       guestName: b.guestName || '',
+      guestEmail: b.guestEmail || '',
+      guestPhone: b.guestPhone || '',
       checkIn: String(b.checkIn || '').slice(0,10),
       checkOut: String(b.checkOut || '').slice(0,10),
       source: b.source || 'Direct',
       amount: Number(b.amount) || 0,
       status: b.status || 'Confirmed',
+      remarks: b.remarks || '',
       addedBy: b.addedBy || '',
       createdAt: b.createdAt || new Date().toISOString(),
       updatedAt: b.updatedAt || new Date().toISOString()
@@ -1687,6 +1740,7 @@ document.addEventListener('click', function(e){
     case 'set-type': setActiveSeg(txnTypeSeg, 'type', el.dataset.type); populateCategorySelect(el.dataset.type); break;
     case 'rename-category': renameCategoryPrompt(); break;
     case 'rename-subcategory': renameSubcategoryPrompt(); break;
+    case 'rename-booking-status': renameBookingStatusPrompt(); break;
     case 'set-booking-filter': bookingsFilter = el.dataset.filter; renderBookings(); break;
     case 'edit-booking': openBookingModal(el.dataset.id); break;
     case 'delete-txn-from-row': deleteTxn(el.dataset.id); break;
@@ -1730,17 +1784,21 @@ function init(){
   bookingIdInput = document.getElementById('bookingId');
   bookingNumberInput = document.getElementById('bookingNumber');
   guestNameInput = document.getElementById('guestName');
+  guestEmailInput = document.getElementById('guestEmail');
+  guestPhoneInput = document.getElementById('guestPhone');
   checkInInput = document.getElementById('checkIn');
   checkOutInput = document.getElementById('checkOut');
   bookingSourceSel = document.getElementById('bookingSource');
   bookingAmountInput = document.getElementById('bookingAmount');
   bookingStatusSel = document.getElementById('bookingStatus');
+  bookingStatusOther = document.getElementById('bookingStatusOther');
+  bookingRemarksInput = document.getElementById('bookingRemarks');
   bookingAddedByInput = document.getElementById('bookingAddedBy');
   bookingDeleteBtn = document.getElementById('bookingDeleteBtn');
   bookingModalTitle = document.getElementById('bookingModalTitle');
 
   bookingSourceSel.innerHTML = BOOKING_SOURCES.map(function(s){ return '<option value="'+escapeHtml(s)+'">'+escapeHtml(s)+'</option>'; }).join('');
-  bookingStatusSel.innerHTML = BOOKING_STATUSES.map(function(s){ return '<option value="'+escapeHtml(s)+'">'+escapeHtml(s)+'</option>'; }).join('');
+  wireCombo(bookingStatusSel, bookingStatusOther, null);
 
   document.getElementById('fabAdd').addEventListener('click', function(){
     if(!state.settings.appsScriptUrl){ toast('Connect your Google Sheet in Settings first'); switchTab('settings'); return; }
@@ -1790,11 +1848,14 @@ function init(){
       id:id,
       bookingNumber: bookingNumberInput.value.trim(),
       guestName: guestNameInput.value.trim(),
+      guestEmail: guestEmailInput.value.trim(),
+      guestPhone: guestPhoneInput.value.trim(),
       checkIn: checkInInput.value,
       checkOut: checkOutInput.value,
       source: bookingSourceSel.value,
       amount: parseFloat(bookingAmountInput.value) || 0,
-      status: bookingStatusSel.value,
+      status: getComboValue(bookingStatusSel, bookingStatusOther),
+      remarks: bookingRemarksInput.value.trim(),
       addedBy: bookingAddedByInput.value.trim() || state.settings.userName || 'Unknown',
       createdAt: existing ? existing.createdAt : new Date().toISOString(),
       updatedAt: new Date().toISOString()
