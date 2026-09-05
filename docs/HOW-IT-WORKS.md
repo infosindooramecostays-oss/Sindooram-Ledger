@@ -84,4 +84,11 @@ saving after an update:
 1. Open the Sheet → Extensions → Apps Script.
 2. Select all, delete, paste the latest code from Settings → "How to connect
    a Google Sheet".
-3. Save. The existing deployment URL keeps working — no redeploy needed.
+3. Save (Ctrl+S).
+4. **Deploy → Manage deployments** → click the pencil/edit icon on the
+   existing deployment → set **Version** to **"New version"** → **Deploy**.
+
+Saving alone does **not** update what the live URL runs — a versioned Web
+App deployment only picks up new code once you point it at a new version
+via Manage Deployments. Steps 3 alone looks like it worked but silently
+doesn't; the URL itself never changes, so nothing else needs updating.

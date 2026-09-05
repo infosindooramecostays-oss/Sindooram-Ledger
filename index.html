@@ -588,7 +588,7 @@ details.card summary:hover{ color:var(--accent); }
 
 /* ---------- Constants ---------- */
 var LS_KEYS = { settings:'sr_settings_v1', cache:'sr_cache_v1' };
-var EXPENSE_CATEGORIES = ['Fixed Expenses','Maintenance','Property Upgrades','Digital Promotions','Other'];
+var EXPENSE_CATEGORIES = ['Fixed Expenses','Maintenance','Property Upgrades','Digital Promotions'];
 var INCOME_CATEGORIES = ['Booking Revenue','Other Income'];
 var BOOKING_SOURCES = ['Direct','Airbnb','Booking.com','MakeMyTrip','Other'];
 var SUBCATEGORY_PRESETS = {
@@ -621,9 +621,12 @@ var CATEGORY_ICON_PATHS = {
   'Other': '<path d="M4 4h10l6 6-8 8-10-10V4z"/><circle cx="8.5" cy="8.5" r="1.5"/>'
 };
 var APPS_SCRIPT_CODE =
+'// Handles GET requests from the app: just returns everything in the Sheet.\n' +
 'function doGet(e) {\n' +
 '  return jsonResponse(readAll());\n' +
 '}\n\n' +
+'// Handles POST requests from the app: overwrites both sheets with the data\n' +
+'// sent, then returns the freshly saved copy back to the app.\n' +
 'function doPost(e) {\n' +
 '  var data = JSON.parse(e.postData.contents);\n' +
 '  var ss = SpreadsheetApp.getActiveSpreadsheet();\n' +
@@ -631,6 +634,7 @@ var APPS_SCRIPT_CODE =
 '  writeBookings(ss, data.bookings || []);\n' +
 '  return jsonResponse(readAll());\n' +
 '}\n\n' +
+'// Reads both sheets and returns them as plain JS objects/arrays.\n' +
 'function readAll() {\n' +
 '  var ss = SpreadsheetApp.getActiveSpreadsheet();\n' +
 '  return {\n' +
@@ -638,9 +642,23 @@ var APPS_SCRIPT_CODE =
 '    bookings: readSheet(ss, \'Bookings\', [\'id\',\'bookingNumber\',\'guestName\',\'checkIn\',\'checkOut\',\'source\',\'amount\',\'status\',\'addedBy\',\'createdAt\',\'updatedAt\'])\n' +
 '  };\n' +
 '}\n\n' +
+'// Wraps an object as the JSON response the app expects.\n' +
 'function jsonResponse(obj) {\n' +
 '  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);\n' +
 '}\n\n' +
+'// Strips a leading apostrophe (our own "force text" marker — see writeRow)\n' +
+'// and converts any stray Date-typed cell back to a plain yyyy-mm-dd string.\n' +
+'function cleanCellValue(val) {\n' +
+'  if (val instanceof Date) {\n' +
+'    return Utilities.formatDate(val, Session.getScriptTimeZone(), "yyyy-MM-dd\'T\'HH:mm:ss");\n' +
+'  }\n' +
+'  if (typeof val === \'string\' && val.charAt(0) === "\'") {\n' +
+'    return val.slice(1);\n' +
+'  }\n' +
+'  return val;\n' +
+'}\n\n' +
+'// Reads one sheet\'s rows into an array of objects keyed by "keys", skipping\n' +
+'// blank rows.\n' +
 'function readSheet(ss, name, keys) {\n' +
 '  var sheet = ss.getSheetByName(name);\n' +
 '  if (!sheet) return [];\n' +
@@ -650,43 +668,51 @@ var APPS_SCRIPT_CODE =
 '    .filter(function (row) { return row[0] !== \'\' && row[0] !== null; })\n' +
 '    .map(function (row) {\n' +
 '      var obj = {};\n' +
-'      keys.forEach(function (key, i) {\n' +
-'        var val = row[i];\n' +
-'        if (val instanceof Date) {\n' +
-'          val = Utilities.formatDate(val, Session.getScriptTimeZone(), "yyyy-MM-dd\'T\'HH:mm:ss");\n' +
-'        }\n' +
-'        obj[key] = val;\n' +
-'      });\n' +
+'      keys.forEach(function (key, i) { obj[key] = cleanCellValue(row[i]); });\n' +
 '      return obj;\n' +
 '    });\n' +
 '}\n\n' +
+'// A leading apostrophe is Sheets\' own "treat this as literal text" marker —\n' +
+'// it works the same whether typed by hand or set via the API, and (unlike\n' +
+'// setNumberFormat) doesn\'t depend on a format change landing before the\n' +
+'// value does. Sheets strips it on input; cleanCellValue() strips it too as\n' +
+'// a fallback, in case a value ever comes back with it still attached.\n' +
+'function forceText(value) {\n' +
+'  return "\'" + value;\n' +
+'}\n\n' +
+'// Replaces the whole Transactions sheet with the given rows.\n' +
 'function writeTransactions(ss, transactions) {\n' +
 '  var sheet = ss.getSheetByName(\'Transactions\') || ss.insertSheet(\'Transactions\');\n' +
 '  sheet.clear();\n' +
 '  var headers = [\'ID\', \'Type\', \'Date\', \'Category\', \'Subcategory\', \'Description\', \'Amount\', \'Added By\', \'Recurrence\', \'Created At\', \'Updated At\'];\n' +
-'  sheet.appendRow(headers);\n' +
+'  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);\n' +
 '  if (transactions.length > 0) {\n' +
-'    sheet.getRange(2, 3, transactions.length, 1).setNumberFormat(\'@\');\n' +
-'    sheet.getRange(2, 10, transactions.length, 2).setNumberFormat(\'@\');\n' +
+'    var rows = transactions.map(function (t) {\n' +
+'      return [t.id, t.type, forceText(t.date), t.category, t.subcategory || \'\', t.description || \'\', t.amount, t.addedBy, t.recurrence || \'One-off\', forceText(t.createdAt), forceText(t.updatedAt)];\n' +
+'    });\n' +
+'    sheet.getRange(2, 3, rows.length, 1).setNumberFormat(\'@\');\n' +
+'    sheet.getRange(2, 10, rows.length, 2).setNumberFormat(\'@\');\n' +
+'    SpreadsheetApp.flush();\n' +
+'    sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);\n' +
 '  }\n' +
-'  transactions.forEach(function (t) {\n' +
-'    sheet.appendRow([t.id, t.type, t.date, t.category, t.subcategory || \'\', t.description || \'\', t.amount, t.addedBy, t.recurrence || \'One-off\', t.createdAt, t.updatedAt]);\n' +
-'  });\n' +
 '  sheet.getRange(1, 1, 1, headers.length).setFontWeight(\'bold\');\n' +
 '  sheet.autoResizeColumns(1, headers.length);\n' +
 '}\n\n' +
+'// Replaces the whole Bookings sheet with the given rows.\n' +
 'function writeBookings(ss, bookings) {\n' +
 '  var sheet = ss.getSheetByName(\'Bookings\') || ss.insertSheet(\'Bookings\');\n' +
 '  sheet.clear();\n' +
 '  var headers = [\'ID\', \'Booking Number\', \'Guest\', \'Check-in\', \'Check-out\', \'Source\', \'Amount\', \'Status\', \'Added By\', \'Created At\', \'Updated At\'];\n' +
-'  sheet.appendRow(headers);\n' +
+'  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);\n' +
 '  if (bookings.length > 0) {\n' +
-'    sheet.getRange(2, 4, bookings.length, 2).setNumberFormat(\'@\');\n' +
-'    sheet.getRange(2, 10, bookings.length, 2).setNumberFormat(\'@\');\n' +
+'    var rows = bookings.map(function (b) {\n' +
+'      return [b.id, b.bookingNumber, b.guestName, forceText(b.checkIn), forceText(b.checkOut), b.source, b.amount, b.status, b.addedBy, forceText(b.createdAt), forceText(b.updatedAt)];\n' +
+'    });\n' +
+'    sheet.getRange(2, 4, rows.length, 2).setNumberFormat(\'@\');\n' +
+'    sheet.getRange(2, 10, rows.length, 2).setNumberFormat(\'@\');\n' +
+'    SpreadsheetApp.flush();\n' +
+'    sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);\n' +
 '  }\n' +
-'  bookings.forEach(function (b) {\n' +
-'    sheet.appendRow([b.id, b.bookingNumber, b.guestName, b.checkIn, b.checkOut, b.source, b.amount, b.status, b.addedBy, b.createdAt, b.updatedAt]);\n' +
-'  });\n' +
 '  sheet.getRange(1, 1, 1, headers.length).setFontWeight(\'bold\');\n' +
 '  sheet.autoResizeColumns(1, headers.length);\n' +
 '}';
@@ -1286,7 +1312,7 @@ function guideHTML(){
     '<div class="code-block" id="scriptCode">' + escapeHtml(APPS_SCRIPT_CODE) + '</div>' +
     '<button type="button" class="copy-btn" data-action="copy-script">Copy script</button>' +
     '<div class="guide-note">Share this page\'s link and this same Apps Script URL with everyone who should see and edit the ledger &mdash; that\'s what makes it live for everyone.</div>' +
-    '<div class="guide-note">Already connected before? If a new field (like Sub-category or Recurring) isn\'t saving, your Apps Script code is out of date. Open your Sheet\'s Extensions &rarr; Apps Script, select all, delete, paste the latest code below, and Save. No need to redeploy &mdash; the same URL keeps working.</div>' +
+    '<div class="guide-note">Already connected before? If a new field (like Sub-category or Recurring) isn\'t saving, your Apps Script code is out of date. Open your Sheet\'s Extensions &rarr; Apps Script, select all, delete, paste the latest code below, and Save &mdash; <strong>then Deploy &rarr; Manage deployments &rarr; edit the existing deployment &rarr; set Version to "New version" &rarr; Deploy.</strong> Saving alone does not update what the live URL runs; this last step does, and the URL itself stays the same.</div>' +
     '<p><strong>Troubleshooting:</strong> if the header shows "Offline", double-check the URL was pasted in full (including <code>/exec</code>) and access is set to "Anyone". If you edit and redeploy the script later, Google issues a new URL &mdash; update it here, and ask everyone else to update their copy too.</p>' +
     '</div>';
 }
@@ -1342,14 +1368,18 @@ function buildComboOptions(list, allowBlank){
   opts += '<option value="' + ADD_NEW_VALUE + '">+ Add new&hellip;</option>';
   return opts;
 }
-function setComboValue(selectEl, otherInputEl, value, list, allowBlank){
-  selectEl.innerHTML = buildComboOptions(list, allowBlank);
+function setComboValue(selectEl, otherInputEl, value, list, allowBlank, includeOther){
+  // "Other" (a plain reusable option, for one-off misc things) is distinct
+  // from "+ Add new..." (for a properly named, reusable category) — only
+  // Category and Sub-category offer it, not Recurring.
+  var fullList = (includeOther && list.indexOf('Other') === -1) ? list.concat(['Other']) : list;
+  selectEl.innerHTML = buildComboOptions(fullList, allowBlank);
   var v = value || '';
   if(v === ''){
-    selectEl.value = allowBlank ? '' : (list[0] || ADD_NEW_VALUE);
+    selectEl.value = allowBlank ? '' : (fullList[0] || ADD_NEW_VALUE);
     otherInputEl.style.display = 'none';
     otherInputEl.value = '';
-  } else if(list.indexOf(v) !== -1){
+  } else if(fullList.indexOf(v) !== -1){
     selectEl.value = v;
     otherInputEl.style.display = 'none';
     otherInputEl.value = '';
@@ -1378,7 +1408,7 @@ function wireCombo(selectEl, otherInputEl, onChange){
 }
 function populateCategorySelect(type, selected){
   var cats = getCategoryList(type);
-  setComboValue(txnCategory, txnCategoryOther, selected, cats, false);
+  setComboValue(txnCategory, txnCategoryOther, selected, cats, false, true);
 }
 function updateSubcategoryOptions(selectedSub){
   var category = getComboValue(txnCategory, txnCategoryOther);
@@ -1389,7 +1419,7 @@ function updateSubcategoryOptions(selectedSub){
   });
   var all = presets.concat(used.filter(function(u){ return presets.indexOf(u) === -1; }));
   var current = selectedSub !== undefined ? selectedSub : getComboValue(txnSubcategory, txnSubcategoryOther);
-  setComboValue(txnSubcategory, txnSubcategoryOther, current, all, true);
+  setComboValue(txnSubcategory, txnSubcategoryOther, current, all, true, true);
 }
 function renameCategoryPrompt(){
   var type = txnTypeSeg.querySelector('.seg-btn.active').dataset.type;
