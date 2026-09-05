@@ -648,6 +648,10 @@ var APPS_SCRIPT_CODE =
 '// sent, then returns the freshly saved copy back to the app.\n' +
 'function doPost(e) {\n' +
 '  var data = JSON.parse(e.postData.contents);\n' +
+'  if (data.action === \'sendReport\') {\n' +
+'    sendMonthlyReport();\n' +
+'    return jsonResponse({ status: \'sent\' });\n' +
+'  }\n' +
 '  var ss = SpreadsheetApp.getActiveSpreadsheet();\n' +
 '  writeTransactions(ss, data.transactions || []);\n' +
 '  writeBookings(ss, data.bookings || []);\n' +
@@ -734,6 +738,102 @@ var APPS_SCRIPT_CODE =
 '  }\n' +
 '  sheet.getRange(1, 1, 1, headers.length).setFontWeight(\'bold\');\n' +
 '  sheet.autoResizeColumns(1, headers.length);\n' +
+'}\n\n' +
+'// Where the monthly Profit & Loss email gets sent. Change this any time.\n' +
+'var REPORT_RECIPIENT = \'chinnoos.pr@gmail.com\';\n\n' +
+'// Emails a P&L summary for the calendar month that just ended. Safe to\n' +
+'// call any time (manually, or from the scheduled trigger below) — it only\n' +
+'// reads data, never changes the Sheet.\n' +
+'function sendMonthlyReport() {\n' +
+'  var now = new Date();\n' +
+'  var periodStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);\n' +
+'  var periodEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);\n' +
+'  var prevStart = new Date(periodStart.getFullYear(), periodStart.getMonth() - 1, 1);\n' +
+'  var prevEnd = new Date(periodStart.getFullYear(), periodStart.getMonth(), 0, 23, 59, 59);\n' +
+'  var data = readAll();\n' +
+'  var current = summarizePeriod(data, periodStart, periodEnd);\n' +
+'  var previous = summarizePeriod(data, prevStart, prevEnd);\n' +
+'  var monthLabel = Utilities.formatDate(periodStart, Session.getScriptTimeZone(), \'MMMM yyyy\');\n' +
+'  MailApp.sendEmail({\n' +
+'    to: REPORT_RECIPIENT,\n' +
+'    subject: \'Sindooram Ledger — P&L for \' + monthLabel,\n' +
+'    htmlBody: buildReportHtml(monthLabel, current, previous)\n' +
+'  });\n' +
+'}\n\n' +
+'// Totals income/expenses/bookings for transactions and bookings whose date\n' +
+'// falls between start and end (inclusive).\n' +
+'function summarizePeriod(data, start, end) {\n' +
+'  var income = 0, expenses = 0, byCategory = {};\n' +
+'  data.transactions.forEach(function (t) {\n' +
+'    var d = new Date(t.date + \'T00:00:00\');\n' +
+'    if (d < start || d > end) return;\n' +
+'    var amt = Number(t.amount) || 0;\n' +
+'    if (t.type === \'income\') { income += amt; }\n' +
+'    else { expenses += amt; byCategory[t.category] = (byCategory[t.category] || 0) + amt; }\n' +
+'  });\n' +
+'  var bookingsCount = 0, nights = 0, bookingsRevenue = 0;\n' +
+'  data.bookings.forEach(function (b) {\n' +
+'    var d = new Date(b.checkIn + \'T00:00:00\');\n' +
+'    if (d < start || d > end) return;\n' +
+'    bookingsCount += 1;\n' +
+'    bookingsRevenue += Number(b.amount) || 0;\n' +
+'    nights += Math.round((new Date(b.checkOut + \'T00:00:00\') - d) / 86400000);\n' +
+'  });\n' +
+'  return { income: income, expenses: expenses, net: income - expenses, byCategory: byCategory, bookingsCount: bookingsCount, nights: nights, bookingsRevenue: bookingsRevenue };\n' +
+'}\n\n' +
+'function formatMoney(n) {\n' +
+'  return \'₹\' + Math.round(n).toLocaleString(\'en-IN\');\n' +
+'}\n\n' +
+'function pctChange(curr, prev) {\n' +
+'  if (!prev) return null;\n' +
+'  return ((curr - prev) / Math.abs(prev)) * 100;\n' +
+'}\n\n' +
+'function deltaHtml(curr, prev) {\n' +
+'  var pct = pctChange(curr, prev);\n' +
+'  if (pct === null) return \'\';\n' +
+'  var arrow = pct >= 0 ? \'▲\' : \'▼\';\n' +
+'  return \' <span style="font-size:12px;color:#898781;">(\' + arrow + \' \' + Math.abs(Math.round(pct)) + \'% vs last month)</span>\';\n' +
+'}\n\n' +
+'// Builds the HTML email body: a header banner, a big net profit/loss\n' +
+'// figure, income vs expenses, an expense-by-category table, and a\n' +
+'// bookings summary — the same numbers the dashboard already tracks.\n' +
+'function buildReportHtml(monthLabel, curr, prev) {\n' +
+'  var netColor = curr.net >= 0 ? \'#0ca30c\' : \'#d03b3b\';\n' +
+'  var netLabel = curr.net >= 0 ? \'Net Profit\' : \'Net Loss\';\n' +
+'  var categories = Object.keys(curr.byCategory).sort(function (a, b) { return curr.byCategory[b] - curr.byCategory[a]; });\n' +
+'  var categoryRows = categories.map(function (cat) {\n' +
+'    return \'<tr><td style="padding:6px 0;color:#52514e;">\' + cat + \'</td><td style="padding:6px 0;text-align:right;font-weight:600;">\' + formatMoney(curr.byCategory[cat]) + \'</td></tr>\';\n' +
+'  }).join(\'\');\n' +
+'  return \'<div style="font-family:system-ui,-apple-system,sans-serif;max-width:480px;margin:0 auto;">\' +\n' +
+'    \'<div style="background:linear-gradient(135deg,#4c3fd7,#8b3fea,#ec4899);padding:24px;border-radius:16px;color:#fff;text-align:center;">\' +\n' +
+'    \'<div style="font-size:14px;opacity:.85;">Sindooram Ledger</div>\' +\n' +
+'    \'<div style="font-size:18px;font-weight:700;margin-top:4px;">\' + monthLabel + \' — Profit &amp; Loss</div></div>\' +\n' +
+'    \'<div style="background:#fff;border:1px solid #eee;border-radius:16px;padding:20px;margin-top:12px;text-align:center;">\' +\n' +
+'    \'<div style="font-size:12px;color:#898781;text-transform:uppercase;">\' + netLabel + \'</div>\' +\n' +
+'    \'<div style="font-size:32px;font-weight:800;color:\' + netColor + \';margin-top:4px;">\' + formatMoney(Math.abs(curr.net)) + \'</div>\' +\n' +
+'    \'<div>\' + deltaHtml(curr.net, prev.net) + \'</div></div>\' +\n' +
+'    \'<div style="background:#fff;border:1px solid #eee;border-radius:16px;padding:20px;margin-top:12px;">\' +\n' +
+'    \'<table style="width:100%;border-collapse:collapse;">\' +\n' +
+'    \'<tr><td style="padding:6px 0;color:#52514e;">Total Income</td><td style="padding:6px 0;text-align:right;font-weight:700;color:#006300;">\' + formatMoney(curr.income) + deltaHtml(curr.income, prev.income) + \'</td></tr>\' +\n' +
+'    \'<tr><td style="padding:6px 0;color:#52514e;">Total Expenses</td><td style="padding:6px 0;text-align:right;font-weight:700;">\' + formatMoney(curr.expenses) + deltaHtml(curr.expenses, prev.expenses) + \'</td></tr>\' +\n' +
+'    \'</table></div>\' +\n' +
+'    \'<div style="background:#fff;border:1px solid #eee;border-radius:16px;padding:20px;margin-top:12px;">\' +\n' +
+'    \'<div style="font-size:13px;font-weight:700;margin-bottom:8px;">Expenses by category</div>\' +\n' +
+'    \'<table style="width:100%;border-collapse:collapse;">\' + (categoryRows || \'<tr><td style="color:#898781;">No expenses recorded.</td></tr>\') + \'</table></div>\' +\n' +
+'    \'<div style="background:#fff;border:1px solid #eee;border-radius:16px;padding:20px;margin-top:12px;">\' +\n' +
+'    \'<div style="font-size:13px;font-weight:700;margin-bottom:8px;">Bookings</div>\' +\n' +
+'    \'<div style="color:#52514e;font-size:14px;">\' + curr.bookingsCount + \' booking(s) · \' + curr.nights + \' night(s) · \' + formatMoney(curr.bookingsRevenue) + \' revenue\' + deltaHtml(curr.bookingsRevenue, prev.bookingsRevenue) + \'</div></div>\' +\n' +
+'    \'<div style="text-align:center;margin-top:16px;font-size:12px;color:#898781;">Generated automatically from your Sindooram Ledger Sheet.</div></div>\';\n' +
+'}\n\n' +
+'// Run this once yourself (select it above, then click Run) to schedule\n' +
+'// sendMonthlyReport() for 7am on the 1st of every month. Re-running it is\n' +
+'// safe — it clears any previous schedule for this function first so you\n' +
+'// never end up with duplicate emails.\n' +
+'function createMonthlyReportTrigger() {\n' +
+'  ScriptApp.getProjectTriggers().forEach(function (t) {\n' +
+'    if (t.getHandlerFunction() === \'sendMonthlyReport\') ScriptApp.deleteTrigger(t);\n' +
+'  });\n' +
+'  ScriptApp.newTrigger(\'sendMonthlyReport\').timeBased().onMonthDay(1).atHour(7).create();\n' +
 '}';
 
 /* ---------- State ---------- */
@@ -1351,6 +1451,13 @@ function renderSettings(){
       '<p class="sync-status" id="syncStatusText">' + sheetStatusLabel() + '</p>' +
     '</div>' +
     '<details class="card"><summary>How to connect a Google Sheet</summary>' + guideHTML() + '</details>' +
+    '<div class="card"><h3 class="card-title">Monthly P&amp;L email</h3>' +
+      '<p class="empty-hint" style="margin-top:-4px;">Automatically emails a profit &amp; loss summary for the previous month, every 1st at 7am &mdash; income, expenses by category, and bookings.</p>' +
+      '<div class="settings-actions">' +
+        '<button type="button" class="btn-secondary" data-action="send-report-now">Send last month\'s report now</button>' +
+      '</div>' +
+      '<div class="guide-note">One-time setup in Apps Script: open the script, choose <code>createMonthlyReportTrigger</code> from the function dropdown at the top, click Run, and approve the permissions it asks for. That schedules the email going forward &mdash; you only do this once.</div>' +
+    '</div>' +
     '<div class="card"><h3 class="card-title">Backup</h3>' +
       '<p class="empty-hint" style="margin-top:-4px;">Your data already lives safely in the Sheet — this just downloads a personal copy.</p>' +
       '<div class="settings-actions">' +
@@ -1715,6 +1822,22 @@ function exportData(){
   document.body.appendChild(a); a.click(); a.remove();
   URL.revokeObjectURL(url);
 }
+function sendReportNow(){
+  if(!state.settings.appsScriptUrl){ toast('Connect your Google Sheet first'); return; }
+  toast('Sending report…');
+  fetch(state.settings.appsScriptUrl, {
+    method:'POST',
+    headers:{ 'Content-Type':'text/plain;charset=utf-8' },
+    body: JSON.stringify({ action:'sendReport' })
+  }).then(function(res){
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    return res.json();
+  }).then(function(){
+    toast('Report sent — check the inbox');
+  }).catch(function(){
+    toast('Could not send — check your connection');
+  });
+}
 function copyScript(){
   var text = document.getElementById('scriptCode') ? document.getElementById('scriptCode').textContent : APPS_SCRIPT_CODE;
   if(navigator.clipboard && navigator.clipboard.writeText){
@@ -1754,6 +1877,7 @@ document.addEventListener('click', function(e){
     case 'tour-back': prevTourStep(); break;
     case 'tour-skip': endTour(); break;
     case 'export-data': exportData(); break;
+    case 'send-report-now': sendReportNow(); break;
     case 'copy-script': copyScript(); break;
   }
 });
