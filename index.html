@@ -141,6 +141,12 @@ input:focus, select:focus{ outline:none; border-color:var(--accent); box-shadow:
 .conn-status{ margin:8px auto 0; font-size:10.5px; color:rgba(255,255,255,.88); display:flex; align-items:center; justify-content:center; gap:5px; letter-spacing:.02em; background:rgba(255,255,255,.12); border:0; border-radius:999px; padding:5px 12px; cursor:pointer; }
 .conn-status:hover{ background:rgba(255,255,255,.2); }
 .conn-status:active{ transform:scale(.97); }
+.tour-trigger{
+  position:absolute; top:calc(16px + env(safe-area-inset-top)); right:16px;
+  width:32px; height:32px; border-radius:50%; border:0; background:rgba(255,255,255,.16);
+  color:#fff; display:flex; align-items:center; justify-content:center; cursor:pointer;
+}
+.tour-trigger:hover{ background:rgba(255,255,255,.28); }
 .conn-dot{ width:7px; height:7px; border-radius:50%; display:inline-block; flex:none; }
 .conn-dot-live{ background:#3ddc71; box-shadow:0 0 0 3px rgba(61,220,113,.3); animation:pulseDot 2.4s ease-in-out infinite; }
 .conn-dot-syncing{ background:#ffd166; }
@@ -360,6 +366,30 @@ details.card summary:hover{ color:var(--accent); }
 }
 .modal-footer .btn-primary{ flex:1; padding:15px; font-size:15.5px; border-radius:16px; }
 
+/* ---------- Quick tour ---------- */
+.tour-overlay{ display:none; position:fixed; inset:0; z-index:90; }
+.tour-overlay.open{ display:block; }
+.tour-spotlight{
+  position:fixed; border:2px solid var(--accent); border-radius:16px;
+  box-shadow:0 0 0 9999px rgba(8,4,20,.7); /* the huge shadow dims everything except this box */
+  pointer-events:none; transition:top .25s ease, left .25s ease, width .25s ease, height .25s ease;
+}
+.tour-spotlight.no-target{ box-shadow:0 0 0 9999px rgba(8,4,20,.7); border-color:transparent; }
+.tour-card{
+  position:fixed; left:50%; transform:translateX(-50%); width:calc(100% - 32px); max-width:360px;
+  background:var(--surface); border-radius:20px; padding:18px; box-shadow:0 20px 50px rgba(0,0,0,.4);
+  transition:top .25s ease, bottom .25s ease;
+}
+.tour-card-title{ font-size:16px; font-weight:800; margin-bottom:6px; }
+.tour-card-body{ font-size:13.5px; color:var(--text-secondary); line-height:1.5; }
+.tour-dots{ display:flex; gap:6px; justify-content:center; margin:14px 0; }
+.tour-dots span{ width:6px; height:6px; border-radius:50%; background:var(--grid); }
+.tour-dots span.active{ background:var(--accent); width:16px; border-radius:3px; }
+.tour-card-footer{ display:flex; align-items:center; justify-content:space-between; }
+.tour-skip{ background:none; border:0; color:var(--text-muted); font-size:13px; font-weight:600; cursor:pointer; padding:8px 4px; }
+.tour-skip:hover{ color:var(--text-primary); }
+.tour-nav-buttons{ display:flex; gap:8px; }
+
 #toast{
   position:fixed; left:50%; bottom:96px; transform:translate(-50%,10px);
   background:var(--text-primary); color:var(--page); padding:12px 20px; border-radius:999px;
@@ -375,6 +405,10 @@ details.card summary:hover{ color:var(--accent); }
 <body>
 
 <header class="topbar">
+  <!-- Opens the step-by-step app walkthrough (see TOUR_STEPS in the script) -->
+  <button type="button" class="tour-trigger" data-action="start-tour" aria-label="Quick tour">
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 015.8 1c0 2-3 2-3 4"/><line x1="12" y1="17" x2="12" y2="17"/></svg>
+  </button>
   <div class="hero-brand">Sindooram Ledger</div>
   <div class="hero-tagline">Shared expense &amp; booking book for the villa</div>
   <div class="topbar-title" id="topbarTitle">Dashboard</div>
@@ -435,7 +469,7 @@ details.card summary:hover{ color:var(--accent); }
         <label class="field-label">Date</label>
         <input required type="date" id="txnDate" class="field-input">
       </div>
-      <div class="field-group">
+      <div class="field-group" id="txnCategoryGroup">
         <div class="field-label-row">
           <label class="field-label">Category</label>
           <button type="button" class="field-edit-btn" data-action="rename-category" aria-label="Rename category"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></button>
@@ -443,7 +477,7 @@ details.card summary:hover{ color:var(--accent); }
         <select required id="txnCategory" class="field-input"></select>
         <input type="text" id="txnCategoryOther" class="field-input field-other-input" placeholder="New category name" style="display:none;">
       </div>
-      <div class="field-group">
+      <div class="field-group" id="txnSubcategoryGroup">
         <div class="field-label-row">
           <label class="field-label">Sub-category <span class="field-optional">optional</span></label>
           <button type="button" class="field-edit-btn" data-action="rename-subcategory" aria-label="Rename sub-category"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></button>
@@ -451,7 +485,7 @@ details.card summary:hover{ color:var(--accent); }
         <select id="txnSubcategory" class="field-input"></select>
         <input type="text" id="txnSubcategoryOther" class="field-input field-other-input" placeholder="New sub-category name" style="display:none;">
       </div>
-      <div class="field-group">
+      <div class="field-group" id="txnRecurrenceGroup">
         <label class="field-label">Recurring?</label>
         <select id="txnRecurrence" class="field-input"></select>
         <input type="text" id="txnRecurrenceOther" class="field-input field-other-input" placeholder="e.g. Quarterly, Every 45 days" style="display:none;">
@@ -489,11 +523,11 @@ details.card summary:hover{ color:var(--accent); }
         <input required type="number" min="0" step="0.01" id="bookingAmount" placeholder="0" inputmode="decimal">
       </div>
 
-      <div class="field-group">
+      <div class="field-group" id="bookingGuestGroup">
         <label class="field-label">Guest name</label>
         <input required type="text" id="guestName" class="field-input">
       </div>
-      <div class="field-row">
+      <div class="field-row" id="bookingDatesRow">
         <div class="field-group">
           <label class="field-label">Check-in</label>
           <input required type="date" id="checkIn" class="field-input">
@@ -503,7 +537,7 @@ details.card summary:hover{ color:var(--accent); }
           <input required type="date" id="checkOut" class="field-input">
         </div>
       </div>
-      <div class="field-row">
+      <div class="field-row" id="bookingSourceStatusRow">
         <div class="field-group">
           <label class="field-label">Source</label>
           <select id="bookingSource" class="field-input"></select>
@@ -527,6 +561,23 @@ details.card summary:hover{ color:var(--accent); }
         <button type="submit" class="btn-primary">Save</button>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- Quick tour: dark backdrop + a "spotlight" box that moves to highlight one element per step -->
+<div class="tour-overlay" id="tourOverlay">
+  <div class="tour-spotlight" id="tourSpotlight"></div>
+  <div class="tour-card" id="tourCard">
+    <div class="tour-card-title" id="tourTitle"></div>
+    <div class="tour-card-body" id="tourBody"></div>
+    <div class="tour-dots" id="tourDots"></div>
+    <div class="tour-card-footer">
+      <button type="button" class="tour-skip" data-action="tour-skip">Skip</button>
+      <div class="tour-nav-buttons">
+        <button type="button" class="btn-secondary" id="tourBackBtn" data-action="tour-back">Back</button>
+        <button type="button" class="btn-primary" id="tourNextBtn" data-action="tour-next">Next</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -896,6 +947,159 @@ function toast(msg){
   toastTimer = setTimeout(function(){ el.classList.remove('show'); }, 2200);
 }
 
+/* ---------- Quick tour ---------- */
+// Each step: which tab to switch to (or null to stay put), which element to
+// spotlight (CSS selector, or null for a plain centered message), and the text.
+var TOUR_STEPS = [
+  // Dashboard, top to bottom (every card in order), then its + button.
+  { tab:'dashboard', selector:'#granSeg', title:'Switch time ranges', body:'Tap Daily, Weekly, Monthly, or YTD to change what the whole dashboard shows.' },
+  { tab:'dashboard', selector:'#periodNav', title:'Browse other periods', body:'Use the arrows to step to the previous or next day/week/month/year.' },
+  { tab:'dashboard', selector:'.hero-stat', title:'Your net balance', body:'The big number is income minus expenses for whichever period you’ve selected above.' },
+  { tab:'dashboard', selector:'#tab-dashboard .stat-grid', title:'Income & expenses', body:'A closer breakdown of the same period, with the change versus last time.' },
+  { tab:'dashboard', selector:'#tab-dashboard .mini-row', title:'Bookings revenue', body:'Revenue from guest bookings that fall in this period.' },
+  { tab:'dashboard', selector:'#expenseBreakdownCard', title:'Expense breakdown', body:'Where the money went, by category, largest first.' },
+  { tab:'dashboard', selector:'#trendCard', title:'Net trend', body:'Drag your finger across the chart to see the exact number for each point.' },
+  { tab:'dashboard', selector:'.tx-list', title:'Transactions list', body:'Tap any entry to edit it, or tap the trash icon to delete it right away.' },
+  { tab:'dashboard', selector:'#fabAdd', title:'Add an expense or income', body:'Tap this while on Dashboard to log a new expense or income entry.' },
+  // Opens the Add Transaction form (modal:'txn') to walk through its fields.
+  { tab:'dashboard', modal:'txn', selector:'#txnModalOverlay .amount-field', title:'Enter the amount', body:'Switch between Expense and Income at the top of this form.' },
+  { tab:'dashboard', modal:'txn', selector:'#txnCategoryGroup', title:'Category', body:'Pick one, or choose "+ Add new…" to create your own — it saves for everyone.' },
+  { tab:'dashboard', modal:'txn', selector:'#txnSubcategoryGroup', title:'Sub-category (optional)', body:'Extra detail like "Electricity Bill" under Fixed Expenses. Also supports "+ Add new…".' },
+  { tab:'dashboard', modal:'txn', selector:'#txnRecurrenceGroup', title:'Mark it as recurring', body:'Tag repeating costs like salaries or bills — it\'s just a label, nothing gets created automatically.' },
+  { tab:'dashboard', modal:'txn', selector:'#txnModalOverlay .modal-footer', title:'Save it', body:'Saves straight to the shared Google Sheet — everyone connected sees it within moments.' },
+  // Bookings, then its + button (same button, different behaviour here).
+  { tab:'bookings', selector:'#tab-bookings .stat-grid', title:'Bookings summary', body:'Count, nights, and revenue for whichever filter is selected below.' },
+  { tab:'bookings', selector:'.booking-list', title:'Guest bookings', body:'See every booking here. The coloured stripe on the left shows its status at a glance.' },
+  { tab:'bookings', selector:'#fabAdd', title:'Add a booking', body:'Tap this while on Bookings to log a new guest booking instead.' },
+  // Opens the Add Booking form (modal:'booking') to walk through its fields.
+  { tab:'bookings', modal:'booking', selector:'#bookingModalOverlay .amount-field', title:'Booking amount', body:'The total value of the stay.' },
+  { tab:'bookings', modal:'booking', selector:'#bookingGuestGroup', title:'Guest name', body:'Who the booking is for.' },
+  { tab:'bookings', modal:'booking', selector:'#bookingDatesRow', title:'Check-in & check-out', body:'The stay dates — nights are worked out for you automatically.' },
+  { tab:'bookings', modal:'booking', selector:'#bookingSourceStatusRow', title:'Source & status', body:'Where the booking came from, and whether it\'s confirmed, pending, completed, or cancelled.' },
+  { tab:'bookings', modal:'booking', selector:'#bookingModalOverlay .modal-footer', title:'Save it', body:'Same as expenses — saves straight to the shared Sheet.' },
+  { tab:null, selector:null, title:'You’re all set!', body:'Start logging expenses, income, and bookings — everyone connected will see it live.' }
+];
+var tourStepIndex = 0;
+
+// Opens the overlay and jumps to the first step.
+function startTour(){
+  tourStepIndex = 0;
+  document.getElementById('tourOverlay').classList.add('open');
+  renderTourStep();
+}
+
+// Draws the current step: switches tab if needed, then positions the
+// spotlight box and the info card around the target element.
+// Opens/closes the Add Transaction or Add Booking modal to match what the
+// current step needs, so we can highlight fields inside them too.
+function ensureTourModalState(step){
+  if(step.modal === 'txn'){
+    if(!txnModalOverlay.classList.contains('open')) openTxnModal();
+  } else if(txnModalOverlay.classList.contains('open')){
+    hideModal(txnModalOverlay);
+  }
+  if(step.modal === 'booking'){
+    if(!bookingModalOverlay.classList.contains('open')) openBookingModal();
+  } else if(bookingModalOverlay.classList.contains('open')){
+    hideModal(bookingModalOverlay);
+  }
+}
+function renderTourStep(){
+  var step = TOUR_STEPS[tourStepIndex];
+  if(step.tab && step.tab !== currentTab) switchTab(step.tab);
+  ensureTourModalState(step);
+
+  document.getElementById('tourTitle').textContent = step.title;
+  document.getElementById('tourBody').textContent = step.body;
+
+  // Progress dots, one per step, current one highlighted.
+  var dotsEl = document.getElementById('tourDots');
+  dotsEl.innerHTML = TOUR_STEPS.map(function(s, i){
+    return '<span class="' + (i === tourStepIndex ? 'active' : '') + '"></span>';
+  }).join('');
+
+  document.getElementById('tourBackBtn').style.visibility = tourStepIndex === 0 ? 'hidden' : 'visible';
+  document.getElementById('tourNextBtn').textContent = tourStepIndex === TOUR_STEPS.length - 1 ? 'Done' : 'Next';
+
+  positionTourElements(step.selector);
+}
+
+// Moves the spotlight box and info card to sit around (or below/above) the
+// target element. With no selector, the spotlight just dims the whole page.
+function positionTourElements(selector){
+  var spotlight = document.getElementById('tourSpotlight');
+  var card = document.getElementById('tourCard');
+  var target = selector ? document.querySelector(selector) : null;
+
+  if(!target){
+    spotlight.classList.add('no-target');
+    spotlight.style.top = '0px'; spotlight.style.left = '0px';
+    spotlight.style.width = '0px'; spotlight.style.height = '0px';
+    card.style.top = '50%'; card.style.bottom = 'auto';
+    card.style.transform = 'translate(-50%,-50%)';
+    return;
+  }
+
+  spotlight.classList.remove('no-target');
+  // Long elements (like the transaction list) can be taller than the screen;
+  // fixed chrome (the + button, the nav bar) never needs scrolling — doing so
+  // anyway can make the browser shift the page for no reason.
+  var isFixedChrome = !!target.closest('.bottomnav');
+  if(!isFixedChrome) target.scrollIntoView({ block:'center' });
+
+  var rect = target.getBoundingClientRect();
+  var pad = 8;
+  var viewH = window.innerHeight;
+  var headerClear = 90; // the card avoids sitting under the sticky header
+  var navClear = 90;    // the card avoids sitting under the floating nav bar
+
+  // The highlight box always exactly matches the real element — never
+  // clamped — otherwise it stops actually surrounding what it's pointing at.
+  spotlight.style.top = (rect.top - pad) + 'px';
+  spotlight.style.left = (rect.left - pad) + 'px';
+  spotlight.style.width = (rect.width + pad * 2) + 'px';
+  spotlight.style.height = (rect.height + pad * 2) + 'px';
+
+  // The card only uses the on-screen portion of the target to decide where
+  // to sit, so a very tall (or fixed, off the clear zone) element can never
+  // push the card itself off-screen.
+  var visibleTop = Math.max(rect.top, headerClear);
+  var visibleBottom = Math.min(rect.bottom, viewH - navClear);
+  var spaceBelow = (viewH - navClear) - visibleBottom;
+  var spaceAbove = visibleTop - headerClear;
+  if(spaceBelow >= spaceAbove){
+    card.style.top = (visibleBottom + pad + 12) + 'px';
+    card.style.bottom = 'auto';
+  } else {
+    card.style.bottom = (viewH - visibleTop + pad + 12) + 'px';
+    card.style.top = 'auto';
+  }
+  card.style.transform = 'translateX(-50%)';
+}
+
+function nextTourStep(){
+  if(tourStepIndex >= TOUR_STEPS.length - 1){ endTour(); return; }
+  tourStepIndex += 1;
+  renderTourStep();
+}
+function prevTourStep(){
+  if(tourStepIndex === 0) return;
+  tourStepIndex -= 1;
+  renderTourStep();
+}
+function endTour(){
+  document.getElementById('tourOverlay').classList.remove('open');
+  if(txnModalOverlay.classList.contains('open')) hideModal(txnModalOverlay);
+  if(bookingModalOverlay.classList.contains('open')) hideModal(bookingModalOverlay);
+  switchTab('dashboard'); // land back on the main view once the tour finishes
+}
+// Keep the spotlight aligned with its target if the screen rotates/resizes.
+window.addEventListener('resize', function(){
+  if(document.getElementById('tourOverlay').classList.contains('open')){
+    positionTourElements(TOUR_STEPS[tourStepIndex].selector);
+  }
+});
+
 /* ---------- Tab switching ---------- */
 function switchTab(name){
   currentTab = name;
@@ -999,7 +1203,7 @@ function renderDashboard(){
         return '<button type="button" class="seg-btn ' + (g===dashGran?'active':'') + '" data-action="set-gran" data-gran="' + g + '">' + GRAN_LABELS[g] + '</button>';
       }).join('') +
     '</div>' +
-    '<div class="period-nav">' +
+    '<div class="period-nav" id="periodNav">' +
       '<button class="icon-btn" data-action="period-prev" aria-label="Previous">‹</button>' +
       '<div class="period-label"><strong>' + range.label + '</strong>' + (range.sub ? '<span>' + range.sub + '</span>' : '') + '</div>' +
       '<button class="icon-btn" data-action="period-next" ' + (dashOffset>=0?'disabled':'') + ' aria-label="Next">›</button>' +
@@ -1007,8 +1211,8 @@ function renderDashboard(){
     heroHTML +
     '<div class="stat-grid">' + tiles + '</div>' +
     bookingsRow +
-    '<div class="card"><h3 class="card-title">Expense breakdown</h3>' + catHTML + '</div>' +
-    '<div class="card"><h3 class="card-title">' + trend.title + '</h3>' + renderSparkline(buckets) +
+    '<div class="card" id="expenseBreakdownCard"><h3 class="card-title">Expense breakdown</h3>' + catHTML + '</div>' +
+    '<div class="card" id="trendCard"><h3 class="card-title">' + trend.title + '</h3>' + renderSparkline(buckets) +
       '<div class="spark-labels"><span>' + buckets[0].label + '</span><span>' + buckets[buckets.length-1].label + '</span></div>' +
       '<p class="empty-hint" style="margin-top:8px;text-align:center;">Drag across the chart to see each value</p></div>' +
     '<div class="card"><h3 class="card-title">Transactions this period</h3><div class="tx-list">' + recentHTML + '</div></div>';
@@ -1092,7 +1296,7 @@ function renderSettings(){
     '<div class="card"><h3 class="card-title">Your profile</h3>' +
       '<div class="field-group"><label class="field-label">Your name</label><input type="text" id="userNameInput" class="field-input" placeholder="e.g. Priya" value="' + escapeHtml(state.settings.userName) + '"></div>' +
     '</div>' +
-    '<div class="card"><h3 class="card-title">Google Sheet connection</h3>' +
+    '<div class="card" id="sheetConnectionCard"><h3 class="card-title">Google Sheet connection</h3>' +
       '<p class="empty-hint" style="margin-top:-4px;">The Sheet is the shared database — everyone\'s page reads and writes the same Sheet.</p>' +
       '<div class="field-group"><label class="field-label">Apps Script Web App URL</label><input type="url" id="appsScriptUrlInput" class="field-input" placeholder="https://script.google.com/macros/s/.../exec" value="' + escapeHtml(state.settings.appsScriptUrl) + '"></div>' +
       '<div class="settings-actions">' +
@@ -1461,6 +1665,10 @@ document.addEventListener('click', function(e){
     case 'delete-booking-from-modal': if(bookingIdInput.value){ deleteBooking(bookingIdInput.value); hideModal(bookingModalOverlay); } break;
     case 'save-settings': saveSettingsFromForm(); break;
     case 'refresh-now': loadFromSheet(false).then(function(){ toast('Refreshed'); }); break;
+    case 'start-tour': startTour(); break;
+    case 'tour-next': nextTourStep(); break;
+    case 'tour-back': prevTourStep(); break;
+    case 'tour-skip': endTour(); break;
     case 'export-data': exportData(); break;
     case 'copy-script': copyScript(); break;
   }
