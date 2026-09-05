@@ -8,9 +8,10 @@ Only elaborate if something breaks or needs clarification.
 Don't show every code change being made.
 
 Before Acting
-If ever unsure, ask before acting.
+
 When Asked a Question
-Respond first, then start action.
+do your assessment and provide a simple narrative-style
+response first, then start action after receiving confirmation from me.
 Ask if the approach is fine before proceeding.
 
 After Completing an Action

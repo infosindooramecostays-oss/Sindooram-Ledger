@@ -439,7 +439,7 @@ details.card summary:hover{ color:var(--accent); }
           <button type="button" class="field-edit-btn" data-action="rename-category" aria-label="Rename category"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></button>
         </div>
         <select required id="txnCategory" class="field-input"></select>
-        <input type="text" id="txnCategoryOther" class="field-input field-other-input" placeholder="Type category name" style="display:none;">
+        <input type="text" id="txnCategoryOther" class="field-input field-other-input" placeholder="New category name" style="display:none;">
       </div>
       <div class="field-group">
         <div class="field-label-row">
@@ -447,7 +447,7 @@ details.card summary:hover{ color:var(--accent); }
           <button type="button" class="field-edit-btn" data-action="rename-subcategory" aria-label="Rename sub-category"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></button>
         </div>
         <select id="txnSubcategory" class="field-input"></select>
-        <input type="text" id="txnSubcategoryOther" class="field-input field-other-input" placeholder="Type sub-category name" style="display:none;">
+        <input type="text" id="txnSubcategoryOther" class="field-input field-other-input" placeholder="New sub-category name" style="display:none;">
       </div>
       <div class="field-group">
         <label class="field-label">Recurring?</label>
@@ -535,7 +535,7 @@ details.card summary:hover{ color:var(--accent); }
 
 /* ---------- Constants ---------- */
 var LS_KEYS = { settings:'sr_settings_v1', cache:'sr_cache_v1' };
-var EXPENSE_CATEGORIES = ['Fixed Expenses','Maintenance','Property Upgrades','Digital Promotions'];
+var EXPENSE_CATEGORIES = ['Fixed Expenses','Maintenance','Property Upgrades','Digital Promotions','Other'];
 var INCOME_CATEGORIES = ['Booking Revenue','Other Income'];
 var BOOKING_SOURCES = ['Direct','Airbnb','Booking.com','MakeMyTrip','Other'];
 var SUBCATEGORY_PRESETS = {
@@ -612,6 +612,10 @@ var APPS_SCRIPT_CODE =
 '  sheet.clear();\n' +
 '  var headers = [\'ID\', \'Type\', \'Date\', \'Category\', \'Subcategory\', \'Description\', \'Amount\', \'Added By\', \'Recurrence\', \'Created At\', \'Updated At\'];\n' +
 '  sheet.appendRow(headers);\n' +
+'  if (transactions.length > 0) {\n' +
+'    sheet.getRange(2, 3, transactions.length, 1).setNumberFormat(\'@\');\n' +
+'    sheet.getRange(2, 10, transactions.length, 2).setNumberFormat(\'@\');\n' +
+'  }\n' +
 '  transactions.forEach(function (t) {\n' +
 '    sheet.appendRow([t.id, t.type, t.date, t.category, t.subcategory || \'\', t.description || \'\', t.amount, t.addedBy, t.recurrence || \'One-off\', t.createdAt, t.updatedAt]);\n' +
 '  });\n' +
@@ -623,6 +627,10 @@ var APPS_SCRIPT_CODE =
 '  sheet.clear();\n' +
 '  var headers = [\'ID\', \'Booking Number\', \'Guest\', \'Check-in\', \'Check-out\', \'Source\', \'Amount\', \'Status\', \'Added By\', \'Created At\', \'Updated At\'];\n' +
 '  sheet.appendRow(headers);\n' +
+'  if (bookings.length > 0) {\n' +
+'    sheet.getRange(2, 4, bookings.length, 2).setNumberFormat(\'@\');\n' +
+'    sheet.getRange(2, 10, bookings.length, 2).setNumberFormat(\'@\');\n' +
+'  }\n' +
 '  bookings.forEach(function (b) {\n' +
 '    sheet.appendRow([b.id, b.bookingNumber, b.guestName, b.checkIn, b.checkOut, b.source, b.amount, b.status, b.addedBy, b.createdAt, b.updatedAt]);\n' +
 '  });\n' +
@@ -1102,7 +1110,7 @@ function renderSettings(){
 
 /* ---------- Transaction modal ---------- */
 var txnModalOverlay, txnForm, txnId, txnDate, txnCategory, txnCategoryOther, txnSubcategory, txnSubcategoryOther, txnRecurrence, txnRecurrenceOther, txnDescription, txnAmount, txnAddedBy, txnDeleteBtn, txnTypeSeg, txnModalTitle;
-var OTHER_VALUE = '__other__';
+var ADD_NEW_VALUE = '__addnew__';
 function getCategoryList(type){
   var base = (type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES).slice();
   var seen = [];
@@ -1125,14 +1133,14 @@ function getRecurrenceList(){
 function buildComboOptions(list, allowBlank){
   var opts = allowBlank ? '<option value="">No sub-category</option>' : '';
   opts += list.map(function(c){ return '<option value="' + escapeHtml(c) + '">' + escapeHtml(c) + '</option>'; }).join('');
-  opts += '<option value="' + OTHER_VALUE + '">Other&hellip;</option>';
+  opts += '<option value="' + ADD_NEW_VALUE + '">+ Add new&hellip;</option>';
   return opts;
 }
 function setComboValue(selectEl, otherInputEl, value, list, allowBlank){
   selectEl.innerHTML = buildComboOptions(list, allowBlank);
   var v = value || '';
   if(v === ''){
-    selectEl.value = allowBlank ? '' : (list[0] || OTHER_VALUE);
+    selectEl.value = allowBlank ? '' : (list[0] || ADD_NEW_VALUE);
     otherInputEl.style.display = 'none';
     otherInputEl.value = '';
   } else if(list.indexOf(v) !== -1){
@@ -1140,18 +1148,18 @@ function setComboValue(selectEl, otherInputEl, value, list, allowBlank){
     otherInputEl.style.display = 'none';
     otherInputEl.value = '';
   } else {
-    selectEl.value = OTHER_VALUE;
+    selectEl.value = ADD_NEW_VALUE;
     otherInputEl.style.display = 'block';
     otherInputEl.value = v;
   }
 }
 function getComboValue(selectEl, otherInputEl){
-  if(selectEl.value === OTHER_VALUE) return otherInputEl.value.trim();
+  if(selectEl.value === ADD_NEW_VALUE) return otherInputEl.value.trim();
   return selectEl.value;
 }
 function wireCombo(selectEl, otherInputEl, onChange){
   selectEl.addEventListener('change', function(){
-    if(selectEl.value === OTHER_VALUE){
+    if(selectEl.value === ADD_NEW_VALUE){
       otherInputEl.style.display = 'block';
       otherInputEl.value = '';
       otherInputEl.focus();
