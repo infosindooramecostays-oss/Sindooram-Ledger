@@ -95,6 +95,27 @@ input:focus, select:focus, textarea:focus{ outline:none; border-color:var(--acce
 .conn-dot-syncing{ background:#ffd166; }
 .conn-dot-error{ background:#ff6b6b; }
 .conn-dot-off{ background:rgba(255,255,255,.45); }
+.help-btn{
+  position:absolute; top:calc(14px + env(safe-area-inset-top)); right:14px;
+  width:30px; height:30px; border-radius:50%; background:rgba(255,255,255,.18); border:0; color:#fff;
+  font-size:15px; font-weight:800; cursor:pointer; display:flex; align-items:center; justify-content:center;
+}
+.help-btn:hover{ background:rgba(255,255,255,.3); }
+
+.tour-overlay{ position:fixed; inset:0; background:rgba(10,8,20,.6); z-index:100; display:flex; align-items:center; justify-content:center; padding:20px; }
+.tour-overlay[hidden]{ display:none; }
+.tour-card{ background:var(--surface); border-radius:22px; padding:26px 22px 22px; max-width:380px; width:100%; box-shadow:0 20px 60px rgba(0,0,0,.4); text-align:center; }
+.tour-lang-toggle{ display:flex; justify-content:center; gap:6px; margin-bottom:14px; }
+.tour-lang-btn{ border:1.5px solid var(--border); background:var(--surface-2); color:var(--text-secondary); font-size:11.5px; font-weight:700; padding:5px 12px; border-radius:999px; cursor:pointer; }
+.tour-lang-btn.active{ background:linear-gradient(135deg, var(--accent), var(--accent-2)); color:#fff; border-color:transparent; }
+.tour-step-label{ font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--accent); margin-bottom:10px; }
+.tour-title{ font-size:17px; font-weight:800; margin:0 0 10px; }
+.tour-body{ font-size:14.5px; line-height:1.7; color:var(--text-secondary); margin:0 0 18px; }
+.tour-dots{ display:flex; justify-content:center; gap:6px; margin-bottom:18px; }
+.tour-dot{ width:7px; height:7px; border-radius:50%; background:var(--border); }
+.tour-dot.active{ background:var(--accent); width:18px; border-radius:4px; }
+.tour-actions{ display:flex; gap:10px; }
+.tour-actions .btn-secondary, .tour-actions .btn-primary{ flex:1; padding:12px 14px; font-size:13.5px; }
 
 #app{ max-width:600px; margin:0 auto; padding:16px 14px 100px; }
 .tab{ display:none; }
@@ -196,6 +217,7 @@ details.card[open] summary::after{ content:'−'; }
   <div class="hero-tagline">Guest ID &amp; document capture for the villa</div>
   <div class="topbar-title" id="topbarTitle">Bookings</div>
   <button type="button" class="conn-status" id="connStatus" data-action="refresh-now" aria-label="Tap to refresh"><span class="conn-dot conn-dot-off"></span>Not connected</button>
+  <button type="button" class="help-btn" data-action="open-tour" aria-label="Quick tour">?</button>
 </header>
 
 <main id="app">
@@ -218,6 +240,23 @@ details.card[open] summary::after{ content:'−'; }
 <input type="file" id="fileInput" accept="image/*,.pdf,.doc,.docx,application/pdf,application/msword" hidden>
 
 <div id="toast"></div>
+
+<div id="tourOverlay" class="tour-overlay" hidden>
+  <div class="tour-card">
+    <div class="tour-lang-toggle">
+      <button type="button" class="tour-lang-btn active" data-action="tour-lang" data-lang="ml">മലയാളം</button>
+      <button type="button" class="tour-lang-btn" data-action="tour-lang" data-lang="en">English</button>
+    </div>
+    <div class="tour-step-label" id="tourStepLabel"></div>
+    <h3 class="tour-title" id="tourTitle"></h3>
+    <p class="tour-body" id="tourBody"></p>
+    <div class="tour-dots" id="tourDots"></div>
+    <div class="tour-actions">
+      <button type="button" class="btn-secondary" data-action="tour-skip">ഒഴിവാക്കുക</button>
+      <button type="button" class="btn-primary" id="tourNextBtn" data-action="tour-next">അടുത്തത്</button>
+    </div>
+  </div>
+</div>
 
 <script>
 'use strict';
@@ -321,6 +360,57 @@ var APPS_SCRIPT_CODE =
 '  sheet.appendRow([bookingNumber, guestName, checkInDate, comments, fileName, uploadedBy, new Date(), fileUrl]);\n' +
 '  sheet.autoResizeColumns(1, 8);\n' +
 '}';
+
+/* ---------- Quick tour (Malayalam / English) ---------- */
+var TOUR_STEPS = {
+  ml: [
+    { title: 'Sindooram ID-ലേക്ക് സ്വാഗതം', body: 'ബുക്കിംഗ് രേഖകൾ (ID, ഫോട്ടോ, ഡോക്യുമെന്റ്) അപ്‌ലോഡ് ചെയ്യാൻ ഈ ആപ്പ് ഉപയോഗിക്കാം. എളുപ്പമുള്ള കുറച്ച് സ്റ്റെപ്പുകൾ താഴെ കാണാം.' },
+    { title: 'Bookings ടാബ്', body: 'താഴെ ഇടത് വശത്തുള്ള Bookings ടാബിൽ സ്ഥിരീകരിച്ച (Confirmed) ബുക്കിംഗുകൾ കാണാം. ഏത് ബുക്കിംഗിന്റെ രേഖ അപ്‌ലോഡ് ചെയ്യണോ അതിൽ ടാപ്പ് ചെയ്യുക.' },
+    { title: 'വിവരങ്ങൾ തനിയെ വരും', body: 'അതിഥിയുടെ പേര്, ബുക്കിംഗ് നമ്പർ, ചെക്ക്-ഇൻ തീയതി, റിമാർക്സ് ഉണ്ടെങ്കിൽ അതും — എല്ലാം തനിയെ കാണിക്കും. ഒന്നും ടൈപ്പ് ചെയ്യേണ്ട.' },
+    { title: 'കുറിപ്പ് (ഓപ്ഷണൽ)', body: '"Additional comments" എന്നതിൽ എന്തെങ്കിലും കുറിപ്പ് വേണമെങ്കിൽ എഴുതാം. ഇത് നിർബന്ധമില്ല.' },
+    { title: 'ഫോട്ടോ / ഫയൽ ചേർക്കുക', body: '"Take Photo" ടാപ്പ് ചെയ്ത് ക്യാമറ ഉപയോഗിച്ച് ഫോട്ടോ എടുക്കാം, അല്ലെങ്കിൽ "Choose File" ടാപ്പ് ചെയ്ത് നേരത്തെയുള്ള ഫോട്ടോ/PDF തിരഞ്ഞെടുക്കാം. വേണമെങ്കിൽ ഒന്നിലധികം ഫയലുകൾ ചേർക്കാം.' },
+    { title: 'അയക്കുന്നതിന് മുൻപ് പരിശോധിക്കുക', body: 'ചേർത്ത ഓരോ ഫയലിനും അരികിൽ "View" എന്ന ലിങ്ക് കാണാം — അതിൽ ടാപ്പ് ചെയ്ത് ഫയൽ ശരിയാണോ എന്ന് നോക്കാം. തെറ്റിയാൽ "Remove" ചെയ്ത് വീണ്ടും ചേർക്കാം.' },
+    { title: 'Submit ചെയ്യുക', body: 'എല്ലാം ശരിയാണെങ്കിൽ "Submit" ബട്ടൺ ടാപ്പ് ചെയ്യുക. എല്ലാ ഫയലുകളും ഒരുമിച്ച് അപ്‌ലോഡ് ആകും.' },
+    { title: 'അപ്‌ലോഡ് ആയോ എന്ന് എങ്ങനെ അറിയാം', body: 'Submit ചെയ്തതിന് ശേഷം താഴെ "Uploaded this session" എന്നതിൽ ഫയലിന്റെ പേരിന് അരികിൽ പച്ച നിറത്തിൽ "Uploaded" എന്ന് കാണിച്ചാൽ അത് ശരിയായി അപ്‌ലോഡ് ആയി എന്നാണ് അർത്ഥം. അരികിലുള്ള "View" ലിങ്കിൽ ടാപ്പ് ചെയ്ത് സേവ് ചെയ്ത ഫയൽ കാണാം. ചുവപ്പ് നിറത്തിൽ "Failed" കണ്ടാൽ വീണ്ടും ശ്രമിക്കുക.' },
+    { title: 'തയ്യാർ!', body: 'ഇത്രയേ ഉള്ളൂ. ഈ ട്യൂർ വീണ്ടും കാണണമെങ്കിൽ മുകളിൽ വലത് വശത്തുള്ള "?" ബട്ടൺ ടാപ്പ് ചെയ്യുക.' }
+  ],
+  en: [
+    { title: 'Welcome to Sindooram ID', body: 'Use this app to upload booking documents (ID, photos, documents). A few easy steps below.' },
+    { title: 'Bookings tab', body: 'The Bookings tab (bottom left) shows Confirmed bookings. Tap the booking you want to upload documents for.' },
+    { title: 'Details fill in automatically', body: 'Guest name, booking number, check-in date, and remarks (if any) show automatically. Nothing to type here.' },
+    { title: 'Comment (optional)', body: 'Write any note in "Additional comments" if needed. This is optional.' },
+    { title: 'Add a photo or file', body: 'Tap "Take Photo" to use the camera, or "Choose File" to pick an existing photo/PDF. You can add more than one file.' },
+    { title: 'Check before sending', body: 'Each added file has a "View" link next to it — tap it to confirm the file is correct. If it\'s wrong, tap "Remove" and add it again.' },
+    { title: 'Tap Submit', body: 'If everything looks right, tap "Submit". All files upload together.' },
+    { title: 'How to know it uploaded', body: 'After Submit, look below in "Uploaded this session" — a green "Uploaded" label next to the file name means it saved successfully. Tap the "View" link there to see the saved file. A red "Failed" label means try again.' },
+    { title: 'All done!', body: 'That\'s it. To see this tour again anytime, tap the "?" button at the top right.' }
+  ]
+};
+var tourIndex = 0;
+var tourLang = 'ml';
+function openTour(){
+  tourIndex = 0;
+  renderTourStep();
+  document.getElementById('tourOverlay').hidden = false;
+}
+function closeTour(){
+  document.getElementById('tourOverlay').hidden = true;
+  try{ localStorage.setItem('idvault_tour_seen_v1', '1'); }catch(e){}
+}
+function renderTourStep(){
+  var steps = TOUR_STEPS[tourLang];
+  var step = steps[tourIndex];
+  document.getElementById('tourStepLabel').textContent = (tourIndex + 1) + ' / ' + steps.length;
+  document.getElementById('tourTitle').textContent = step.title;
+  document.getElementById('tourBody').textContent = step.body;
+  document.getElementById('tourDots').innerHTML = steps.map(function(_, i){
+    return '<span class="tour-dot' + (i === tourIndex ? ' active' : '') + '"></span>';
+  }).join('');
+  document.getElementById('tourNextBtn').textContent = (tourIndex === steps.length - 1)
+    ? (tourLang === 'ml' ? 'ശരി' : 'Done')
+    : (tourLang === 'ml' ? 'അടുത്തത്' : 'Next');
+  document.querySelectorAll('.tour-lang-btn').forEach(function(b){ b.classList.toggle('active', b.dataset.lang === tourLang); });
+}
 
 /* ---------- State ---------- */
 var state = { settings:{ appsScriptUrl:'', managerName:'' }, bookings:[] };
@@ -689,6 +779,20 @@ document.addEventListener('click', function(e){
       pendingFiles = [];
       renderBookings();
       break;
+    case 'open-tour':
+      openTour();
+      break;
+    case 'tour-skip':
+      closeTour();
+      break;
+    case 'tour-next':
+      if(tourIndex === TOUR_STEPS[tourLang].length - 1){ closeTour(); }
+      else { tourIndex++; renderTourStep(); }
+      break;
+    case 'tour-lang':
+      tourLang = el.dataset.lang;
+      renderTourStep();
+      break;
   }
 });
 
@@ -708,6 +812,9 @@ function init(){
   setConnStatus(state.settings.appsScriptUrl ? 'loading' : 'idle');
   switchTab('bookings');
   if(state.settings.appsScriptUrl) loadFromSheet(false);
+  try{
+    if(!localStorage.getItem('idvault_tour_seen_v1')){ setTimeout(openTour, 500); }
+  }catch(e){}
 }
 
 init();
