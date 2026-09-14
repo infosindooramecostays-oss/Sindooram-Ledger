@@ -433,12 +433,12 @@ function renderUpload(){
   el.innerHTML =
     '<div class="card">' +
       nameNotice +
-      '<div class="field-group"><label class="field-label">Guest name</label><input type="text" id="guestNameInput" class="field-input" placeholder="e.g. Priya Menon"></div>' +
-      '<div class="field-group"><label class="field-label">Booking ID</label><input type="text" id="bookingIdInput" class="field-input" placeholder="e.g. BK-0007"></div>' +
+      '<div class="field-group"><label class="field-label">Guest name *</label><input type="text" id="guestNameInput" class="field-input" placeholder="e.g. Priya Menon"></div>' +
+      '<div class="field-group"><label class="field-label">Booking ID *</label><input type="text" id="bookingIdInput" class="field-input" placeholder="e.g. BK-0007"></div>' +
       '<div class="field-group"><label class="field-label">Booking type</label>' +
         '<div class="seg" id="bookingTypeSeg">' + BOOKING_TYPES.map(function(t,i){ return '<button type="button" class="seg-btn ' + (i===0?'active':'') + '" data-action="set-booking-type" data-type="' + t + '">' + t + '</button>'; }).join('') + '</div>' +
       '</div>' +
-      '<div class="field-group"><label class="field-label">Check-in date</label><input type="date" id="uploadCheckIn" class="field-input" value="' + todayStr() + '"></div>' +
+      '<div class="field-group"><label class="field-label">Check-in date *</label><input type="date" id="uploadCheckIn" class="field-input" value="' + todayStr() + '"></div>' +
       '<div class="upload-actions">' +
         '<button type="button" class="upload-btn" data-action="take-photo">' + uploadIconSVG() + 'Take Photo</button>' +
         '<button type="button" class="upload-btn" data-action="choose-file">' + fileIconSVG() + 'Choose File</button>' +
@@ -528,13 +528,15 @@ function uploadSelectedFile(file){
   if(!state.settings.appsScriptUrl){ toast('Connect in Settings first'); return; }
   var managerName = state.settings.managerName || '';
   if(!managerName){ toast('Set your name in Settings first'); return; }
+  var guestNameInput = document.getElementById('guestNameInput');
+  var guestName = guestNameInput ? guestNameInput.value.trim() : '';
+  if(!guestName){ toast('Enter the guest name first'); return; }
   var bookingIdInput = document.getElementById('bookingIdInput');
   var bookingId = bookingIdInput ? bookingIdInput.value.trim() : '';
   if(!bookingId){ toast('Enter a Booking ID first'); return; }
-  var guestNameInput = document.getElementById('guestNameInput');
-  var guestName = guestNameInput ? guestNameInput.value.trim() : '';
   var checkInInput = document.getElementById('uploadCheckIn');
   var checkInDate = checkInInput ? checkInInput.value : '';
+  if(!checkInDate){ toast('Pick a check-in date first'); return; }
 
   var entry = { name: file.name, status:'uploading' };
   sessionUploads.unshift(entry);
