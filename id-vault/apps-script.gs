@@ -61,12 +61,15 @@ function cleanText(val) {
   return s.charAt(0) === "'" ? s.slice(1) : s;
 }
 
-// Saves one uploaded file into Drive under "Sindooram ID Vault/<Booking ID>/",
-// and logs the upload as a row in the Ledger Sheet's "ID Vault Uploads" tab
-// so there's a record of what's been collected, visible next to the bookings.
+// Saves one uploaded file into Drive under
+// "Sindooram ID Vault/<Check-in date>/<Booking Number>/", and logs the
+// upload as a row in the Ledger Sheet's "ID Vault Uploads" tab so there's
+// a record of what's been collected, visible next to the bookings.
 function saveUpload(data) {
-  var bookingId = String(data.bookingId || '').trim() || 'Unlabeled';
-  var folder = getOrCreateFolder(getVaultRootFolder(), bookingId);
+  var bookingNumber = String(data.bookingNumber || '').trim() || 'Unlabeled';
+  var checkInDate = String(data.checkInDate || '').trim() || 'Unknown date';
+  var dateFolder = getOrCreateFolder(getVaultRootFolder(), checkInDate);
+  var folder = getOrCreateFolder(dateFolder, bookingNumber);
 
   var bytes = Utilities.base64Decode(data.fileBase64);
   var blob = Utilities.newBlob(bytes, data.mimeType || 'application/octet-stream', data.fileName || 'upload');
@@ -74,7 +77,7 @@ function saveUpload(data) {
   blob.setName(stamp + '_' + (data.fileName || 'upload'));
   var file = folder.createFile(blob);
 
-  logUpload(bookingId, data.guestName || '', data.bookingType || '', data.checkInDate || '', file.getName(), data.uploadedBy || '', file.getUrl());
+  logUpload(bookingNumber, data.guestName || '', checkInDate, data.comments || '', file.getName(), data.uploadedBy || '', file.getUrl());
 
   return { status: 'ok', fileUrl: file.getUrl(), folderUrl: folder.getUrl() };
 }
@@ -89,14 +92,14 @@ function getOrCreateFolder(parent, name) {
   return parent.createFolder(name);
 }
 
-function logUpload(bookingId, guestName, bookingType, checkInDate, fileName, uploadedBy, fileUrl) {
+function logUpload(bookingNumber, guestName, checkInDate, comments, fileName, uploadedBy, fileUrl) {
   var ss = SpreadsheetApp.openById(LEDGER_SHEET_ID);
   var sheet = ss.getSheetByName('ID Vault Uploads') || ss.insertSheet('ID Vault Uploads');
   if (sheet.getLastRow() === 0) {
-    var headers = ['Booking ID', 'Guest Name', 'Booking Type', 'Check-in', 'File Name', 'Uploaded By', 'Uploaded At', 'File Link'];
+    var headers = ['Booking Number', 'Guest Name', 'Check-in', 'Comments', 'File Name', 'Uploaded By', 'Uploaded At', 'File Link'];
     sheet.appendRow(headers);
     sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
   }
-  sheet.appendRow([bookingId, guestName, bookingType, checkInDate, fileName, uploadedBy, new Date(), fileUrl]);
+  sheet.appendRow([bookingNumber, guestName, checkInDate, comments, fileName, uploadedBy, new Date(), fileUrl]);
   sheet.autoResizeColumns(1, 8);
 }

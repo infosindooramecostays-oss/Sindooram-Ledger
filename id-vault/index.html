@@ -66,10 +66,10 @@ body{
   color:var(--text-primary);
   -webkit-tap-highlight-color: transparent;
 }
-button, input, select{ font-family: inherit; }
+button, input, select, textarea{ font-family: inherit; }
 button{ transition: background-color .15s ease, color .15s ease, box-shadow .15s ease, transform .15s ease, border-color .15s ease; }
-input, select{ transition: border-color .15s ease, box-shadow .15s ease; }
-input:focus, select:focus{ outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(109,94,248,.2); }
+input, select, textarea{ transition: border-color .15s ease, box-shadow .15s ease; }
+input:focus, select:focus, textarea:focus{ outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(109,94,248,.2); }
 
 .topbar{
   position:sticky; top:0; z-index:20;
@@ -110,10 +110,7 @@ input:focus, select:focus{ outline:none; border-color:var(--accent); box-shadow:
 .field-optional{ font-weight:400; color:var(--text-muted); font-size:11.5px; }
 .field-input{ display:block; width:100%; max-width:100%; padding:13px 14px; border-radius:14px; border:1.5px solid var(--border); background:var(--surface-2); color:var(--text-primary); font-size:15.5px; font-weight:500; }
 input[type="date"].field-input{ -webkit-appearance:none; appearance:none; }
-
-.seg{ display:flex; background:var(--surface-2); border-radius:999px; padding:4px; gap:2px; margin-bottom:14px; }
-.seg-btn{ flex:1; border:0; background:transparent; padding:11px 4px; border-radius:999px; font-size:13.5px; font-weight:600; color:var(--text-secondary); cursor:pointer; }
-.seg-btn.active{ background:linear-gradient(135deg, var(--accent), var(--accent-2)); color:#fff; font-weight:700; box-shadow:0 4px 14px -3px rgba(109,94,248,.55); }
+textarea.field-input{ resize:vertical; min-height:64px; }
 
 .upload-actions{ display:flex; gap:10px; margin-bottom:14px; }
 .upload-btn{
@@ -132,6 +129,14 @@ input[type="date"].field-input{ -webkit-appearance:none; appearance:none; }
 .upload-status.uploading{ background:rgba(250,178,25,.2); color:#8a5c00; }
 .upload-status.done{ background:rgba(12,163,12,.15); color:var(--good); }
 .upload-status.failed{ background:rgba(208,59,59,.15); color:var(--critical); }
+.remove-pending-btn{ background:none; border:0; color:var(--critical); font-size:12px; font-weight:700; cursor:pointer; padding:4px 8px; flex:none; }
+.remove-pending-btn:hover{ text-decoration:underline; }
+.btn-primary:disabled{ opacity:.45; cursor:not-allowed; box-shadow:none; }
+
+.detail-row{ display:flex; justify-content:space-between; align-items:baseline; gap:10px; padding:9px 0; border-bottom:1px solid var(--grid); font-size:14px; }
+.detail-row:last-of-type{ border-bottom:0; }
+.detail-label{ color:var(--text-secondary); font-weight:600; flex:none; }
+.detail-value{ color:var(--text-primary); font-weight:700; text-align:right; }
 
 .booking-list .booking-card{ background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:14px 16px; margin-bottom:10px; cursor:pointer; box-shadow:var(--shadow-1); transition:transform .15s ease, box-shadow .15s ease; }
 .booking-list .booking-card:hover{ transform:translateY(-2px); }
@@ -187,22 +192,17 @@ details.card[open] summary::after{ content:'−'; }
 <header class="topbar">
   <div class="hero-brand">Sindooram ID Vault</div>
   <div class="hero-tagline">Guest ID &amp; document capture for the villa</div>
-  <div class="topbar-title" id="topbarTitle">Upload</div>
+  <div class="topbar-title" id="topbarTitle">Bookings</div>
   <button type="button" class="conn-status" id="connStatus" data-action="refresh-now" aria-label="Tap to refresh"><span class="conn-dot conn-dot-off"></span>Not connected</button>
 </header>
 
 <main id="app">
-  <section id="tab-upload" class="tab active"></section>
-  <section id="tab-bookings" class="tab"></section>
+  <section id="tab-bookings" class="tab active"></section>
   <section id="tab-settings" class="tab"></section>
 </main>
 
 <nav class="bottomnav">
-  <button class="navbtn active" data-action="switch-tab" data-tab="upload">
-    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a2 2 0 002 2h12a2 2 0 002-2v-3"/></svg>
-    Upload
-  </button>
-  <button class="navbtn" data-action="switch-tab" data-tab="bookings">
+  <button class="navbtn active" data-action="switch-tab" data-tab="bookings">
     <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v4M16 3v4"/></svg>
     Bookings
   </button>
@@ -222,7 +222,6 @@ details.card[open] summary::after{ content:'−'; }
 
 /* ---------- Constants ---------- */
 var LS_KEYS = { settings:'idvault_settings_v1', cache:'idvault_cache_v1' };
-var BOOKING_TYPES = ['Airbnb','Direct'];
 var APPS_SCRIPT_CODE =
 '// ===== Sindooram ID Vault — Apps Script =====\n' +
 '// A separate, standalone script from the main Ledger one. It only reads\n' +
@@ -279,18 +278,21 @@ var APPS_SCRIPT_CODE =
 '  var s = String(val == null ? \'\' : val);\n' +
 '  return s.charAt(0) === "\'" ? s.slice(1) : s;\n' +
 '}\n\n' +
-'// Saves one uploaded file into Drive under "Sindooram ID Vault/<Booking ID>/",\n' +
-'// and logs the upload as a row in the Ledger Sheet\'s "ID Vault Uploads" tab\n' +
-'// so there\'s a record of what\'s been collected, visible next to the bookings.\n' +
+'// Saves one uploaded file into Drive under\n' +
+'// "Sindooram ID Vault/<Check-in date>/<Booking Number>/", and logs the\n' +
+'// upload as a row in the Ledger Sheet\'s "ID Vault Uploads" tab so there\'s\n' +
+'// a record of what\'s been collected, visible next to the bookings.\n' +
 'function saveUpload(data) {\n' +
-'  var bookingId = String(data.bookingId || \'\').trim() || \'Unlabeled\';\n' +
-'  var folder = getOrCreateFolder(getVaultRootFolder(), bookingId);\n\n' +
+'  var bookingNumber = String(data.bookingNumber || \'\').trim() || \'Unlabeled\';\n' +
+'  var checkInDate = String(data.checkInDate || \'\').trim() || \'Unknown date\';\n' +
+'  var dateFolder = getOrCreateFolder(getVaultRootFolder(), checkInDate);\n' +
+'  var folder = getOrCreateFolder(dateFolder, bookingNumber);\n\n' +
 '  var bytes = Utilities.base64Decode(data.fileBase64);\n' +
 '  var blob = Utilities.newBlob(bytes, data.mimeType || \'application/octet-stream\', data.fileName || \'upload\');\n' +
 '  var stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), \'yyyy-MM-dd_HHmmss\');\n' +
 '  blob.setName(stamp + \'_\' + (data.fileName || \'upload\'));\n' +
 '  var file = folder.createFile(blob);\n\n' +
-'  logUpload(bookingId, data.guestName || \'\', data.bookingType || \'\', data.checkInDate || \'\', file.getName(), data.uploadedBy || \'\', file.getUrl());\n\n' +
+'  logUpload(bookingNumber, data.guestName || \'\', checkInDate, data.comments || \'\', file.getName(), data.uploadedBy || \'\', file.getUrl());\n\n' +
 '  return { status: \'ok\', fileUrl: file.getUrl(), folderUrl: folder.getUrl() };\n' +
 '}\n\n' +
 'function getVaultRootFolder() {\n' +
@@ -301,24 +303,27 @@ var APPS_SCRIPT_CODE =
 '  if (existing.hasNext()) return existing.next();\n' +
 '  return parent.createFolder(name);\n' +
 '}\n\n' +
-'function logUpload(bookingId, guestName, bookingType, checkInDate, fileName, uploadedBy, fileUrl) {\n' +
+'function logUpload(bookingNumber, guestName, checkInDate, comments, fileName, uploadedBy, fileUrl) {\n' +
 '  var ss = SpreadsheetApp.openById(LEDGER_SHEET_ID);\n' +
 '  var sheet = ss.getSheetByName(\'ID Vault Uploads\') || ss.insertSheet(\'ID Vault Uploads\');\n' +
 '  if (sheet.getLastRow() === 0) {\n' +
-'    var headers = [\'Booking ID\', \'Guest Name\', \'Booking Type\', \'Check-in\', \'File Name\', \'Uploaded By\', \'Uploaded At\', \'File Link\'];\n' +
+'    var headers = [\'Booking Number\', \'Guest Name\', \'Check-in\', \'Comments\', \'File Name\', \'Uploaded By\', \'Uploaded At\', \'File Link\'];\n' +
 '    sheet.appendRow(headers);\n' +
 '    sheet.getRange(1, 1, 1, headers.length).setFontWeight(\'bold\');\n' +
 '  }\n' +
-'  sheet.appendRow([bookingId, guestName, bookingType, checkInDate, fileName, uploadedBy, new Date(), fileUrl]);\n' +
+'  sheet.appendRow([bookingNumber, guestName, checkInDate, comments, fileName, uploadedBy, new Date(), fileUrl]);\n' +
 '  sheet.autoResizeColumns(1, 8);\n' +
 '}';
 
 /* ---------- State ---------- */
 var state = { settings:{ appsScriptUrl:'', managerName:'' }, bookings:[] };
-var currentTab = 'upload';
+var currentTab = 'bookings';
 var connectionStatus = 'idle';
 var lastLoadedAt = null;
 var sessionUploads = [];
+var activeBooking = null;
+var pendingFiles = [];
+var pendingIdCounter = 0;
 
 /* ---------- Storage ---------- */
 function loadState(){
@@ -340,7 +345,6 @@ function escapeHtml(str){
     return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
   });
 }
-function todayStr(){ var d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
 function fmtShort(str){
   if(!str) return '';
   var d = new Date(str + 'T00:00:00');
@@ -371,13 +375,12 @@ function switchTab(name){
   currentTab = name;
   document.querySelectorAll('.tab').forEach(function(t){ t.classList.toggle('active', t.id === 'tab-' + name); });
   document.querySelectorAll('.navbtn').forEach(function(b){ b.classList.toggle('active', b.dataset.tab === name); });
-  document.getElementById('topbarTitle').textContent = { upload:'Upload', bookings:'Bookings', settings:'Settings' }[name];
+  document.getElementById('topbarTitle').textContent = { bookings:'Bookings', settings:'Settings' }[name];
   if(name === 'bookings' && state.settings.appsScriptUrl) loadFromSheet(true);
   renderCurrentTab();
 }
 function renderCurrentTab(){
-  if(currentTab === 'upload') renderUpload();
-  else if(currentTab === 'bookings') renderBookings();
+  if(currentTab === 'bookings') renderBookings();
   else renderSettings();
 }
 
@@ -414,41 +417,15 @@ function loadFromSheet(silent){
   });
 }
 
-/* ---------- Upload tab ---------- */
+/* ---------- Upload icons ---------- */
 function uploadIconSVG(){
   return '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>';
 }
 function fileIconSVG(){
   return '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>';
 }
-function renderUpload(){
-  var el = document.getElementById('tab-upload');
-  if(!state.settings.appsScriptUrl){ el.innerHTML = notConnectedHTML(); return; }
-  var uploadsHTML = sessionUploads.length ? sessionUploads.map(function(u,i){
-    var cls = u.status === 'done' ? 'done' : (u.status === 'failed' ? 'failed' : 'uploading');
-    var label = u.status === 'done' ? 'Uploaded' : (u.status === 'failed' ? 'Failed' : 'Uploading…');
-    return '<div class="upload-row"><span class="name">' + escapeHtml(u.name) + '</span><span class="upload-status ' + cls + '">' + label + '</span></div>';
-  }).join('') : '<p class="empty-hint">Nothing uploaded yet this session.</p>';
-  var nameNotice = state.settings.managerName ? '' : '<div class="guide-note">Set your name in <strong>Settings</strong> before uploading.</div>';
 
-  el.innerHTML =
-    '<div class="card">' +
-      nameNotice +
-      '<div class="field-group"><label class="field-label">Guest name *</label><input type="text" id="guestNameInput" class="field-input" placeholder="e.g. Priya Menon"></div>' +
-      '<div class="field-group"><label class="field-label">Booking ID *</label><input type="text" id="bookingIdInput" class="field-input" placeholder="e.g. BK-0007"></div>' +
-      '<div class="field-group"><label class="field-label">Booking type</label>' +
-        '<div class="seg" id="bookingTypeSeg">' + BOOKING_TYPES.map(function(t,i){ return '<button type="button" class="seg-btn ' + (i===0?'active':'') + '" data-action="set-booking-type" data-type="' + t + '">' + t + '</button>'; }).join('') + '</div>' +
-      '</div>' +
-      '<div class="field-group"><label class="field-label">Check-in date *</label><input type="date" id="uploadCheckIn" class="field-input" value="' + todayStr() + '"></div>' +
-      '<div class="upload-actions">' +
-        '<button type="button" class="upload-btn" data-action="take-photo">' + uploadIconSVG() + 'Take Photo</button>' +
-        '<button type="button" class="upload-btn" data-action="choose-file">' + fileIconSVG() + 'Choose File</button>' +
-      '</div>' +
-    '</div>' +
-    '<div class="card"><h3 class="card-title">Uploaded this session</h3><div class="upload-list">' + uploadsHTML + '</div></div>';
-}
-
-/* ---------- Bookings tab ---------- */
+/* ---------- Bookings tab (list + upload detail) ---------- */
 function connectIconSVG(){
   return '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M12 2a10 10 0 100 20 10 10 0 000-20z"/><path d="M8 12h8M12 8v8"/></svg>';
 }
@@ -470,8 +447,54 @@ function bookingCardHTML(b){
 function renderBookings(){
   var el = document.getElementById('tab-bookings');
   if(!state.settings.appsScriptUrl){ el.innerHTML = notConnectedHTML(); return; }
+  if(activeBooking){ renderBookingDetail(el); return; }
   var list = state.bookings.length ? state.bookings.map(bookingCardHTML).join('') : '<p class="empty-hint">No bookings found yet.</p>';
-  el.innerHTML = '<p class="empty-hint" style="margin-bottom:12px;">Tap a booking to fill in its details on the Upload tab.</p><div class="booking-list">' + list + '</div>';
+  el.innerHTML = '<p class="empty-hint" style="margin-bottom:12px;">Tap a booking to upload documents for it.</p><div class="booking-list">' + list + '</div>';
+}
+function renderBookingDetail(el){
+  var b = activeBooking;
+  var nameNotice = state.settings.managerName ? '' : '<div class="guide-note">Set your name in <strong>Settings</strong> before uploading.</div>';
+  el.innerHTML =
+    '<button type="button" class="btn-secondary" data-action="back-to-bookings" style="margin-bottom:12px;">&larr; Back to bookings</button>' +
+    '<div class="card">' +
+      nameNotice +
+      '<div class="detail-row"><span class="detail-label">Guest name</span><span class="detail-value">' + escapeHtml(b.guestName || '—') + '</span></div>' +
+      '<div class="detail-row"><span class="detail-label">Booking number</span><span class="detail-value">#' + escapeHtml(b.bookingNumber) + '</span></div>' +
+      '<div class="detail-row"><span class="detail-label">Check-in</span><span class="detail-value">' + fmtShort(b.checkIn) + '</span></div>' +
+      (b.remarks ? '<div class="detail-row"><span class="detail-label">Remarks</span><span class="detail-value">' + escapeHtml(b.remarks) + '</span></div>' : '') +
+      '<div class="field-group" style="margin-top:14px;margin-bottom:0;"><label class="field-label">Additional comments</label><textarea id="uploadComments" class="field-input" rows="3" placeholder="Optional note for this upload"></textarea></div>' +
+    '</div>' +
+    '<div class="card">' +
+      '<div class="upload-actions">' +
+        '<button type="button" class="upload-btn" data-action="take-photo">' + uploadIconSVG() + 'Take Photo</button>' +
+        '<button type="button" class="upload-btn" data-action="choose-file">' + fileIconSVG() + 'Choose File</button>' +
+      '</div>' +
+      '<h3 class="card-title">Ready to upload</h3><div class="upload-list" id="pendingFilesList"></div>' +
+      '<button type="button" class="btn-primary" id="uploadSubmitBtn" data-action="submit-uploads" style="width:100%;margin-top:12px;">Submit</button>' +
+    '</div>' +
+    '<div class="card"><h3 class="card-title">Uploaded this session</h3><div class="upload-list" id="sessionUploadsList"></div></div>';
+
+  renderPendingList();
+  renderSessionUploads();
+}
+function renderPendingList(){
+  var listEl = document.getElementById('pendingFilesList');
+  var btn = document.getElementById('uploadSubmitBtn');
+  if(!listEl || !btn) return;
+  listEl.innerHTML = pendingFiles.length ? pendingFiles.map(function(p){
+    return '<div class="upload-row"><span class="name">' + escapeHtml(p.file.name) + '</span><button type="button" class="remove-pending-btn" data-action="remove-pending" data-id="' + p.id + '">Remove</button></div>';
+  }).join('') : '<p class="empty-hint">Nothing selected yet — tap Take Photo or Choose File above.</p>';
+  btn.disabled = pendingFiles.length === 0;
+  btn.textContent = pendingFiles.length ? ('Submit ' + pendingFiles.length + ' file' + (pendingFiles.length > 1 ? 's' : '')) : 'Submit';
+}
+function renderSessionUploads(){
+  var el = document.getElementById('sessionUploadsList');
+  if(!el) return;
+  el.innerHTML = sessionUploads.length ? sessionUploads.map(function(u){
+    var cls = u.status === 'done' ? 'done' : (u.status === 'failed' ? 'failed' : 'uploading');
+    var label = u.status === 'done' ? 'Uploaded' : (u.status === 'failed' ? 'Failed' : 'Uploading…');
+    return '<div class="upload-row"><span class="name">' + escapeHtml(u.name) + '</span><span class="upload-status ' + cls + '">' + label + '</span></div>';
+  }).join('') : '<p class="empty-hint">Nothing uploaded yet this session.</p>';
 }
 
 /* ---------- Settings tab ---------- */
@@ -515,7 +538,6 @@ function renderSettings(){
 }
 
 /* ---------- Upload logic ---------- */
-var selectedBookingType = BOOKING_TYPES[0];
 function fileToBase64(file){
   return new Promise(function(resolve, reject){
     var reader = new FileReader();
@@ -524,54 +546,78 @@ function fileToBase64(file){
     reader.readAsDataURL(file);
   });
 }
-function uploadSelectedFile(file){
+function addPendingFile(file){
   if(!file) return;
-  if(!state.settings.appsScriptUrl){ toast('Connect in Settings first'); return; }
-  var managerName = state.settings.managerName || '';
-  if(!managerName){ toast('Set your name in Settings first'); return; }
-  var guestNameInput = document.getElementById('guestNameInput');
-  var guestName = guestNameInput ? guestNameInput.value.trim() : '';
-  if(!guestName){ toast('Enter the guest name first'); return; }
-  var bookingIdInput = document.getElementById('bookingIdInput');
-  var bookingId = bookingIdInput ? bookingIdInput.value.trim() : '';
-  if(!bookingId){ toast('Enter a Booking ID first'); return; }
-  var checkInInput = document.getElementById('uploadCheckIn');
-  var checkInDate = checkInInput ? checkInInput.value : '';
-  if(!checkInDate){ toast('Pick a check-in date first'); return; }
-
-  var entry = { name: file.name, status:'uploading' };
-  sessionUploads.unshift(entry);
-  renderUpload();
-  setConnStatus('syncing');
-
-  fileToBase64(file).then(function(base64){
+  pendingFiles.push({ id: 'p' + (++pendingIdCounter), file: file });
+  renderPendingList();
+}
+function removePendingFile(id){
+  pendingFiles = pendingFiles.filter(function(p){ return p.id !== id; });
+  renderPendingList();
+}
+function uploadOneFile(file, meta){
+  return fileToBase64(file).then(function(base64){
     return fetch(state.settings.appsScriptUrl, {
       method:'POST',
       headers:{ 'Content-Type':'text/plain;charset=utf-8' },
       body: JSON.stringify({
-        bookingId: bookingId,
-        guestName: guestName,
-        bookingType: selectedBookingType,
-        checkInDate: checkInDate,
+        bookingNumber: meta.bookingNumber,
+        guestName: meta.guestName,
+        checkInDate: meta.checkInDate,
+        comments: meta.comments,
         fileName: file.name,
         mimeType: file.type || 'application/octet-stream',
         fileBase64: base64,
-        uploadedBy: managerName
+        uploadedBy: meta.uploadedBy
       })
     });
   }).then(function(res){
     if(!res.ok) throw new Error('HTTP ' + res.status);
     return res.json();
-  }).then(function(){
-    entry.status = 'done';
-    setConnStatus('live');
-    toast('Uploaded');
-    renderUpload();
-  }).catch(function(){
-    entry.status = 'failed';
-    setConnStatus('error');
-    toast('Upload failed — check your connection');
-    renderUpload();
+  });
+}
+function submitUploads(){
+  if(!state.settings.appsScriptUrl){ toast('Connect in Settings first'); return; }
+  if(!activeBooking){ toast('Pick a booking first'); return; }
+  var managerName = state.settings.managerName || '';
+  if(!managerName){ toast('Set your name in Settings first'); return; }
+  if(pendingFiles.length === 0){ toast('Add at least one file first'); return; }
+  var commentsInput = document.getElementById('uploadComments');
+  var comments = commentsInput ? commentsInput.value.trim() : '';
+
+  var meta = { bookingNumber: activeBooking.bookingNumber, guestName: activeBooking.guestName || '', checkInDate: activeBooking.checkIn || '', comments: comments, uploadedBy: managerName };
+  var toSubmit = pendingFiles.slice();
+  pendingFiles = [];
+  renderPendingList();
+
+  var submitBtn = document.getElementById('uploadSubmitBtn');
+  if(submitBtn) submitBtn.disabled = true;
+  setConnStatus('syncing');
+
+  var entries = toSubmit.map(function(p){
+    var entry = { name: p.file.name, status:'uploading' };
+    sessionUploads.unshift(entry);
+    return { file: p.file, entry: entry };
+  });
+  renderSessionUploads();
+
+  var chain = Promise.resolve();
+  entries.forEach(function(pair){
+    chain = chain.then(function(){
+      return uploadOneFile(pair.file, meta).then(function(){
+        pair.entry.status = 'done';
+        renderSessionUploads();
+      }).catch(function(){
+        pair.entry.status = 'failed';
+        renderSessionUploads();
+      });
+    });
+  });
+  chain.then(function(){
+    var anyFailed = entries.some(function(pair){ return pair.entry.status === 'failed'; });
+    setConnStatus(anyFailed ? 'error' : 'live');
+    toast(anyFailed ? 'Some files failed — try again' : 'Uploaded');
+    renderPendingList();
   });
 }
 
@@ -604,10 +650,6 @@ document.addEventListener('click', function(e){
     case 'refresh-now': loadFromSheet(false).then(function(){ toast('Refreshed'); }); break;
     case 'save-settings': saveSettingsFromForm(); break;
     case 'copy-script': copyScript(); break;
-    case 'set-booking-type':
-      selectedBookingType = el.dataset.type;
-      document.querySelectorAll('#bookingTypeSeg .seg-btn').forEach(function(b){ b.classList.toggle('active', b.dataset.type === selectedBookingType); });
-      break;
     case 'take-photo':
       if(!state.settings.appsScriptUrl){ toast('Connect in Settings first'); break; }
       document.getElementById('cameraInput').click();
@@ -616,20 +658,24 @@ document.addEventListener('click', function(e){
       if(!state.settings.appsScriptUrl){ toast('Connect in Settings first'); break; }
       document.getElementById('fileInput').click();
       break;
+    case 'remove-pending':
+      removePendingFile(el.dataset.id);
+      break;
+    case 'submit-uploads':
+      submitUploads();
+      break;
     case 'pick-booking':
       var b = state.bookings.find(function(x){ return x.bookingNumber === el.dataset.number; });
       if(b){
-        switchTab('upload');
-        setTimeout(function(){
-          var idInput = document.getElementById('bookingIdInput');
-          var ciInput = document.getElementById('uploadCheckIn');
-          var gnInput = document.getElementById('guestNameInput');
-          if(idInput) idInput.value = b.bookingNumber;
-          if(ciInput && b.checkIn) ciInput.value = b.checkIn;
-          if(gnInput && b.guestName) gnInput.value = b.guestName;
-          toast('Booking details filled in');
-        }, 0);
+        activeBooking = b;
+        pendingFiles = [];
+        renderBookings();
       }
+      break;
+    case 'back-to-bookings':
+      activeBooking = null;
+      pendingFiles = [];
+      renderBookings();
       break;
   }
 });
@@ -640,15 +686,15 @@ function init(){
   document.getElementById('cameraInput').addEventListener('change', function(e){
     var file = e.target.files[0];
     e.target.value = '';
-    if(file) uploadSelectedFile(file);
+    if(file) addPendingFile(file);
   });
   document.getElementById('fileInput').addEventListener('change', function(e){
     var file = e.target.files[0];
     e.target.value = '';
-    if(file) uploadSelectedFile(file);
+    if(file) addPendingFile(file);
   });
   setConnStatus(state.settings.appsScriptUrl ? 'loading' : 'idle');
-  switchTab('upload');
+  switchTab('bookings');
   if(state.settings.appsScriptUrl) loadFromSheet(false);
 }
 
