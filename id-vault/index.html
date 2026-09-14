@@ -289,7 +289,7 @@ var APPS_SCRIPT_CODE =
 '  var stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), \'yyyy-MM-dd_HHmmss\');\n' +
 '  blob.setName(stamp + \'_\' + (data.fileName || \'upload\'));\n' +
 '  var file = folder.createFile(blob);\n\n' +
-'  logUpload(bookingId, data.bookingType || \'\', data.checkInDate || \'\', file.getName(), data.uploadedBy || \'\', file.getUrl());\n\n' +
+'  logUpload(bookingId, data.guestName || \'\', data.bookingType || \'\', data.checkInDate || \'\', file.getName(), data.uploadedBy || \'\', file.getUrl());\n\n' +
 '  return { status: \'ok\', fileUrl: file.getUrl(), folderUrl: folder.getUrl() };\n' +
 '}\n\n' +
 'function getVaultRootFolder() {\n' +
@@ -300,16 +300,16 @@ var APPS_SCRIPT_CODE =
 '  if (existing.hasNext()) return existing.next();\n' +
 '  return parent.createFolder(name);\n' +
 '}\n\n' +
-'function logUpload(bookingId, bookingType, checkInDate, fileName, uploadedBy, fileUrl) {\n' +
+'function logUpload(bookingId, guestName, bookingType, checkInDate, fileName, uploadedBy, fileUrl) {\n' +
 '  var ss = SpreadsheetApp.openById(LEDGER_SHEET_ID);\n' +
 '  var sheet = ss.getSheetByName(\'ID Vault Uploads\') || ss.insertSheet(\'ID Vault Uploads\');\n' +
 '  if (sheet.getLastRow() === 0) {\n' +
-'    var headers = [\'Booking ID\', \'Booking Type\', \'Check-in\', \'File Name\', \'Uploaded By\', \'Uploaded At\', \'File Link\'];\n' +
+'    var headers = [\'Booking ID\', \'Guest Name\', \'Booking Type\', \'Check-in\', \'File Name\', \'Uploaded By\', \'Uploaded At\', \'File Link\'];\n' +
 '    sheet.appendRow(headers);\n' +
 '    sheet.getRange(1, 1, 1, headers.length).setFontWeight(\'bold\');\n' +
 '  }\n' +
-'  sheet.appendRow([bookingId, bookingType, checkInDate, fileName, uploadedBy, new Date(), fileUrl]);\n' +
-'  sheet.autoResizeColumns(1, 7);\n' +
+'  sheet.appendRow([bookingId, guestName, bookingType, checkInDate, fileName, uploadedBy, new Date(), fileUrl]);\n' +
+'  sheet.autoResizeColumns(1, 8);\n' +
 '}';
 
 /* ---------- State ---------- */
@@ -428,10 +428,12 @@ function renderUpload(){
     var label = u.status === 'done' ? 'Uploaded' : (u.status === 'failed' ? 'Failed' : 'Uploading…');
     return '<div class="upload-row"><span class="name">' + escapeHtml(u.name) + '</span><span class="upload-status ' + cls + '">' + label + '</span></div>';
   }).join('') : '<p class="empty-hint">Nothing uploaded yet this session.</p>';
+  var nameNotice = state.settings.managerName ? '' : '<div class="guide-note">Set your name in <strong>Settings</strong> before uploading.</div>';
 
   el.innerHTML =
     '<div class="card">' +
-      '<div class="field-group"><label class="field-label">Your name</label><input type="text" id="managerNameInput" class="field-input" placeholder="e.g. Ravi" value="' + escapeHtml(state.settings.managerName) + '"></div>' +
+      nameNotice +
+      '<div class="field-group"><label class="field-label">Guest name</label><input type="text" id="guestNameInput" class="field-input" placeholder="e.g. Priya Menon"></div>' +
       '<div class="field-group"><label class="field-label">Booking ID</label><input type="text" id="bookingIdInput" class="field-input" placeholder="e.g. BK-0007"></div>' +
       '<div class="field-group"><label class="field-label">Booking type</label>' +
         '<div class="seg" id="bookingTypeSeg">' + BOOKING_TYPES.map(function(t,i){ return '<button type="button" class="seg-btn ' + (i===0?'active':'') + '" data-action="set-booking-type" data-type="' + t + '">' + t + '</button>'; }).join('') + '</div>' +
@@ -524,15 +526,13 @@ function fileToBase64(file){
 function uploadSelectedFile(file){
   if(!file) return;
   if(!state.settings.appsScriptUrl){ toast('Connect in Settings first'); return; }
+  var managerName = state.settings.managerName || '';
+  if(!managerName){ toast('Set your name in Settings first'); return; }
   var bookingIdInput = document.getElementById('bookingIdInput');
   var bookingId = bookingIdInput ? bookingIdInput.value.trim() : '';
   if(!bookingId){ toast('Enter a Booking ID first'); return; }
-  var managerNameInput = document.getElementById('managerNameInput');
-  var managerName = managerNameInput ? managerNameInput.value.trim() : (state.settings.managerName || '');
-  if(managerName && managerName !== state.settings.managerName){
-    state.settings.managerName = managerName;
-    saveSettings();
-  }
+  var guestNameInput = document.getElementById('guestNameInput');
+  var guestName = guestNameInput ? guestNameInput.value.trim() : '';
   var checkInInput = document.getElementById('uploadCheckIn');
   var checkInDate = checkInInput ? checkInInput.value : '';
 
@@ -547,12 +547,13 @@ function uploadSelectedFile(file){
       headers:{ 'Content-Type':'text/plain;charset=utf-8' },
       body: JSON.stringify({
         bookingId: bookingId,
+        guestName: guestName,
         bookingType: selectedBookingType,
         checkInDate: checkInDate,
         fileName: file.name,
         mimeType: file.type || 'application/octet-stream',
         fileBase64: base64,
-        uploadedBy: managerName || 'Unknown'
+        uploadedBy: managerName
       })
     });
   }).then(function(res){
@@ -619,8 +620,10 @@ document.addEventListener('click', function(e){
         setTimeout(function(){
           var idInput = document.getElementById('bookingIdInput');
           var ciInput = document.getElementById('uploadCheckIn');
+          var gnInput = document.getElementById('guestNameInput');
           if(idInput) idInput.value = b.bookingNumber;
           if(ciInput && b.checkIn) ciInput.value = b.checkIn;
+          if(gnInput && b.guestName) gnInput.value = b.guestName;
           toast('Booking details filled in');
         }, 0);
       }

@@ -74,7 +74,7 @@ function saveUpload(data) {
   blob.setName(stamp + '_' + (data.fileName || 'upload'));
   var file = folder.createFile(blob);
 
-  logUpload(bookingId, data.bookingType || '', data.checkInDate || '', file.getName(), data.uploadedBy || '', file.getUrl());
+  logUpload(bookingId, data.guestName || '', data.bookingType || '', data.checkInDate || '', file.getName(), data.uploadedBy || '', file.getUrl());
 
   return { status: 'ok', fileUrl: file.getUrl(), folderUrl: folder.getUrl() };
 }
@@ -89,14 +89,14 @@ function getOrCreateFolder(parent, name) {
   return parent.createFolder(name);
 }
 
-function logUpload(bookingId, bookingType, checkInDate, fileName, uploadedBy, fileUrl) {
+function logUpload(bookingId, guestName, bookingType, checkInDate, fileName, uploadedBy, fileUrl) {
   var ss = SpreadsheetApp.openById(LEDGER_SHEET_ID);
   var sheet = ss.getSheetByName('ID Vault Uploads') || ss.insertSheet('ID Vault Uploads');
   if (sheet.getLastRow() === 0) {
-    var headers = ['Booking ID', 'Booking Type', 'Check-in', 'File Name', 'Uploaded By', 'Uploaded At', 'File Link'];
+    var headers = ['Booking ID', 'Guest Name', 'Booking Type', 'Check-in', 'File Name', 'Uploaded By', 'Uploaded At', 'File Link'];
     sheet.appendRow(headers);
     sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
   }
-  sheet.appendRow([bookingId, bookingType, checkInDate, fileName, uploadedBy, new Date(), fileUrl]);
-  sheet.autoResizeColumns(1, 7);
+  sheet.appendRow([bookingId, guestName, bookingType, checkInDate, fileName, uploadedBy, new Date(), fileUrl]);
+  sheet.autoResizeColumns(1, 8);
 }
