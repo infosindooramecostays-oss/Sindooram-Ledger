@@ -1,6 +1,6 @@
 {
-  "name": "Sindooram ID Vault",
-  "short_name": "ID Vault",
+  "name": "Sindooram ID",
+  "short_name": "Sindooram ID",
   "description": "Capture and store guest ID documents per booking",
   "start_url": "./",
   "scope": "./",
