@@ -7,7 +7,7 @@
 
 // Paste your Ledger Google Sheet's ID here — open the Ledger Sheet, look
 // at its URL: https://docs.google.com/spreadsheets/d/THIS_PART/edit
-var LEDGER_SHEET_ID = 'PASTE_YOUR_LEDGER_SHEET_ID_HERE';
+var LEDGER_SHEET_ID = '1aUJV7OZzxd9Bzwjr18SbsfYiDIp95nlAk1XhrXOcK34';
 
 // The Drive folder everything gets saved under. Created automatically the
 // first time anyone uploads a document — nothing to set up by hand.
@@ -28,8 +28,8 @@ function jsonResponse(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
-// Only what's needed to identify a booking — no amount, status, remarks,
-// or guest contact details are ever read or returned.
+// Only what the manager needs to identify a booking — no amount, status,
+// source, check-out date, or guest contact details are ever read or returned.
 function getRecentBookings() {
   var sheet = SpreadsheetApp.openById(LEDGER_SHEET_ID).getSheetByName('Bookings');
   if (!sheet) return [];
@@ -46,9 +46,8 @@ function getRecentBookings() {
     return {
       bookingNumber: cleanText(row[col['Booking Number']]),
       guestName: cleanText(row[col['Guest']]),
-      source: cleanText(row[col['Source']]),
       checkIn: cleanText(row[col['Check-in']]),
-      checkOut: cleanText(row[col['Check-out']])
+      remarks: cleanText(row[col['Remarks']])
     };
   });
 }
