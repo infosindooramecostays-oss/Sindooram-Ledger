@@ -1,0 +1,663 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ID Vault">
+<meta name="theme-color" content="#5b52d6">
+<title>Sindooram ID Vault</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="assets/icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+<meta property="og:title" content="Sindooram ID Vault">
+<meta property="og:description" content="Capture and store guest ID documents per booking">
+<style>
+:root{
+  color-scheme: light;
+  --page:#f2f2f6;
+  --surface:#ffffff;
+  --surface-2:#f2f2f9;
+  --text-primary:#100f1a;
+  --text-secondary:#65647a;
+  --text-muted:#9694a8;
+  --grid:#e9e8f3;
+  --border:rgba(20,15,50,0.08);
+  --shadow-1:0 1px 2px rgba(20,10,50,.04), 0 14px 28px -18px rgba(20,10,60,.28);
+  --good:#0ca30c;
+  --warning:#fab219;
+  --critical:#d03b3b;
+  --accent:#6d5ef8;
+  --accent-2:#ec4899;
+  --brand-a:#4c3fd7;
+  --brand-b:#8b3fea;
+  --brand-c:#ec4899;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    color-scheme: dark;
+    --page:#0f0e14;
+    --surface:#1a1822;
+    --surface-2:#232131;
+    --text-primary:#f6f5fa;
+    --text-secondary:#ada9c2;
+    --text-muted:#7d7a91;
+    --grid:#2c2a36;
+    --border:rgba(255,255,255,0.09);
+    --shadow-1:0 0 0 1px rgba(255,255,255,.04), 0 14px 30px -14px rgba(0,0,0,.7);
+    --accent:#8b7bff;
+    --accent-2:#f472b6;
+    --brand-a:#5b3df0;
+    --brand-b:#9d4de0;
+    --brand-c:#f472b6;
+  }
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  background:
+    radial-gradient(900px 520px at 10% -12%, rgba(109,94,248,0.16), transparent 60%),
+    radial-gradient(800px 520px at 100% 10%, rgba(236,72,153,0.12), transparent 60%),
+    var(--page);
+  background-attachment: fixed;
+  color:var(--text-primary);
+  -webkit-tap-highlight-color: transparent;
+}
+button, input, select{ font-family: inherit; }
+button{ transition: background-color .15s ease, color .15s ease, box-shadow .15s ease, transform .15s ease, border-color .15s ease; }
+input, select{ transition: border-color .15s ease, box-shadow .15s ease; }
+input:focus, select:focus{ outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(109,94,248,.2); }
+
+.topbar{
+  position:sticky; top:0; z-index:20;
+  background: linear-gradient(135deg, var(--brand-a) 0%, var(--brand-b) 55%, var(--brand-c) 100%);
+  padding:16px 16px 14px;
+  padding-top:calc(16px + env(safe-area-inset-top));
+  text-align:center;
+  box-shadow:0 4px 24px -8px rgba(76,63,215,.45);
+}
+.hero-brand{ color:#fff; font-size:19px; font-weight:800; }
+.hero-tagline{ color:rgba(255,255,255,.85); font-size:12.5px; margin-top:2px; }
+.topbar-title{
+  display:inline-block; margin-top:11px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.06em;
+  color:#fff; background:rgba(255,255,255,.2); padding:4px 13px; border-radius:999px;
+}
+.conn-status{
+  margin:8px auto 0; font-size:10.5px; color:rgba(255,255,255,.88); display:flex; align-items:center; justify-content:center;
+  gap:5px; background:rgba(255,255,255,.12); border:0; border-radius:999px; padding:5px 12px; cursor:pointer;
+}
+.conn-status:hover{ background:rgba(255,255,255,.2); }
+.conn-dot{ width:7px; height:7px; border-radius:50%; display:inline-block; flex:none; }
+.conn-dot-live{ background:#3ddc71; box-shadow:0 0 0 3px rgba(61,220,113,.3); }
+.conn-dot-syncing{ background:#ffd166; }
+.conn-dot-error{ background:#ff6b6b; }
+.conn-dot-off{ background:rgba(255,255,255,.45); }
+
+#app{ max-width:600px; margin:0 auto; padding:16px 14px 100px; }
+.tab{ display:none; }
+.tab.active{ display:block; animation:fadeIn .2s ease; }
+@keyframes fadeIn{ from{ opacity:0; transform:translateY(6px);} to{ opacity:1; transform:none;} }
+
+.card{ background:var(--surface); border:1px solid var(--border); border-radius:20px; padding:17px; margin-bottom:12px; box-shadow:var(--shadow-1); }
+.card-title{ margin:0 0 10px; font-size:14px; font-weight:700; }
+.empty-hint{ color:var(--text-muted); font-size:13px; margin:4px 0; }
+
+.field-group{ margin-bottom:14px; }
+.field-label{ display:block; font-size:12.5px; font-weight:600; color:var(--text-secondary); margin-bottom:6px; }
+.field-optional{ font-weight:400; color:var(--text-muted); font-size:11.5px; }
+.field-input{ display:block; width:100%; padding:13px 14px; border-radius:14px; border:1.5px solid var(--border); background:var(--surface-2); color:var(--text-primary); font-size:15.5px; font-weight:500; }
+
+.seg{ display:flex; background:var(--surface-2); border-radius:999px; padding:4px; gap:2px; margin-bottom:14px; }
+.seg-btn{ flex:1; border:0; background:transparent; padding:11px 4px; border-radius:999px; font-size:13.5px; font-weight:600; color:var(--text-secondary); cursor:pointer; }
+.seg-btn.active{ background:linear-gradient(135deg, var(--accent), var(--accent-2)); color:#fff; font-weight:700; box-shadow:0 4px 14px -3px rgba(109,94,248,.55); }
+
+.upload-actions{ display:flex; gap:10px; margin-bottom:14px; }
+.upload-btn{
+  flex:1; display:flex; flex-direction:column; align-items:center; gap:8px; padding:18px 10px;
+  border-radius:16px; border:1.5px dashed var(--border); background:var(--surface-2); color:var(--text-primary);
+  font-size:13px; font-weight:600; cursor:pointer;
+}
+.upload-btn:hover{ border-color:var(--accent); color:var(--accent); }
+.upload-btn svg{ color:var(--accent); }
+
+.upload-list{ margin-top:4px; }
+.upload-row{ display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid var(--grid); font-size:13.5px; }
+.upload-row:last-child{ border-bottom:0; }
+.upload-row .name{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.upload-status{ font-size:11.5px; font-weight:700; padding:3px 9px; border-radius:999px; flex:none; }
+.upload-status.uploading{ background:rgba(250,178,25,.2); color:#8a5c00; }
+.upload-status.done{ background:rgba(12,163,12,.15); color:var(--good); }
+.upload-status.failed{ background:rgba(208,59,59,.15); color:var(--critical); }
+
+.booking-list .booking-card{ background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:14px 16px; margin-bottom:10px; cursor:pointer; box-shadow:var(--shadow-1); transition:transform .15s ease, box-shadow .15s ease; }
+.booking-list .booking-card:hover{ transform:translateY(-2px); }
+.booking-card-top{ display:flex; justify-content:space-between; align-items:center; gap:8px; }
+.booking-guest{ font-size:15px; font-weight:700; }
+.badge{ font-size:11px; padding:3px 9px; border-radius:999px; font-weight:700; flex:none; background:var(--surface-2); color:var(--text-secondary); }
+.booking-meta{ font-size:12px; color:var(--text-muted); margin-top:4px; }
+.booking-dates{ font-size:13px; margin-top:7px; font-weight:600; }
+
+.bottomnav{
+  position:fixed; left:14px; right:14px; bottom:calc(14px + env(safe-area-inset-bottom)); z-index:30;
+  display:flex; align-items:center; background:var(--surface); border:1px solid var(--border); border-radius:26px;
+  box-shadow:0 12px 32px -10px rgba(20,10,5,.28); padding:6px 6px;
+}
+.navbtn{ flex:1; display:flex; flex-direction:column; align-items:center; gap:2px; padding:9px 0 8px; background:none; border:0; color:var(--text-secondary); font-size:10.5px; font-weight:600; cursor:pointer; border-radius:18px; }
+.navbtn:hover:not(.active){ color:var(--text-primary); background:var(--surface-2); }
+.navbtn.active{ color:var(--accent); background:linear-gradient(135deg, rgba(109,94,248,.14), rgba(236,72,153,.14)); }
+.navbtn svg{ display:block; }
+
+.btn-primary{ background:linear-gradient(135deg, var(--accent), var(--accent-2)); color:#fff; border:0; padding:13px 20px; border-radius:999px; font-weight:700; font-size:14px; cursor:pointer; }
+.btn-primary:hover{ box-shadow:0 8px 20px -6px rgba(109,94,248,.55); }
+.btn-secondary{ background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border); padding:13px 20px; border-radius:999px; font-weight:600; font-size:14px; cursor:pointer; }
+.btn-secondary:hover{ background:var(--grid); border-color:var(--accent); }
+.settings-actions{ display:flex; gap:10px; flex-wrap:wrap; margin-top:2px; }
+.sync-status{ font-size:12.5px; color:var(--text-muted); margin-top:10px; }
+
+details.card summary{ cursor:pointer; font-weight:700; font-size:14px; list-style:none; }
+details.card summary::-webkit-details-marker{ display:none; }
+details.card summary::after{ content:'+'; float:right; font-weight:400; }
+details.card[open] summary::after{ content:'−'; }
+.guide-body{ margin-top:12px; font-size:13.5px; line-height:1.55; }
+.guide-body ol{ padding-left:20px; margin:8px 0; }
+.guide-body li{ margin-bottom:6px; }
+.code-block{ background:var(--surface-2); border:1px solid var(--border); border-radius:12px; padding:10px; font-size:11px; overflow-x:auto; white-space:pre; margin:10px 0; }
+.guide-note{ background:var(--surface-2); border-left:3px solid var(--accent); padding:8px 10px; border-radius:8px; font-size:12.5px; margin:10px 0; }
+.copy-btn{ background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); font-size:12px; padding:7px 12px; border-radius:999px; cursor:pointer; }
+
+.empty-state{ background:var(--surface); border:1.5px dashed var(--border); border-radius:24px; padding:34px 20px; text-align:center; }
+.empty-state-icon{ width:52px; height:52px; border-radius:50%; background:linear-gradient(135deg, rgba(109,94,248,.16), rgba(236,72,153,.16)); color:var(--accent); display:flex; align-items:center; justify-content:center; margin:0 auto 14px; }
+.empty-state .btn-primary{ margin-top:14px; }
+
+#toast{
+  position:fixed; left:50%; bottom:96px; transform:translate(-50%,10px);
+  background:var(--text-primary); color:var(--page); padding:12px 20px; border-radius:999px;
+  font-size:13px; font-weight:600; opacity:0; pointer-events:none; transition:opacity .2s, transform .2s; z-index:60;
+  box-shadow:0 10px 28px rgba(0,0,0,.3);
+}
+#toast.show{ opacity:1; transform:translate(-50%,0); }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="hero-brand">Sindooram ID Vault</div>
+  <div class="hero-tagline">Guest ID &amp; document capture for the villa</div>
+  <div class="topbar-title" id="topbarTitle">Upload</div>
+  <button type="button" class="conn-status" id="connStatus" data-action="refresh-now" aria-label="Tap to refresh"><span class="conn-dot conn-dot-off"></span>Not connected</button>
+</header>
+
+<main id="app">
+  <section id="tab-upload" class="tab active"></section>
+  <section id="tab-bookings" class="tab"></section>
+  <section id="tab-settings" class="tab"></section>
+</main>
+
+<nav class="bottomnav">
+  <button class="navbtn active" data-action="switch-tab" data-tab="upload">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a2 2 0 002 2h12a2 2 0 002-2v-3"/></svg>
+    Upload
+  </button>
+  <button class="navbtn" data-action="switch-tab" data-tab="bookings">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v4M16 3v4"/></svg>
+    Bookings
+  </button>
+  <button class="navbtn" data-action="switch-tab" data-tab="settings">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.9 2.9l-.1-.1a1.7 1.7 0 00-1.9-.3 1.7 1.7 0 00-1 1.6V21a2 2 0 01-4 0v-.1a1.7 1.7 0 00-1-1.6 1.7 1.7 0 00-1.9.3l-.1.1a2 2 0 11-2.9-2.9l.1-.1a1.7 1.7 0 00.3-1.9 1.7 1.7 0 00-1.6-1H3a2 2 0 010-4h.1a1.7 1.7 0 001.6-1 1.7 1.7 0 00-.3-1.9l-.1-.1a2 2 0 112.9-2.9l.1.1a1.7 1.7 0 001.9.3H9a1.7 1.7 0 001-1.6V3a2 2 0 014 0v.1a1.7 1.7 0 001 1.6 1.7 1.7 0 001.9-.3l.1-.1a2 2 0 112.9 2.9l-.1.1a1.7 1.7 0 00-.3 1.9V9a1.7 1.7 0 001.6 1H21a2 2 0 010 4h-.1a1.7 1.7 0 00-1.6 1z"/></svg>
+    Settings
+  </button>
+</nav>
+
+<input type="file" id="cameraInput" accept="image/*" capture="environment" hidden>
+<input type="file" id="fileInput" accept="image/*,.pdf,.doc,.docx,application/pdf,application/msword" hidden>
+
+<div id="toast"></div>
+
+<script>
+'use strict';
+
+/* ---------- Constants ---------- */
+var LS_KEYS = { settings:'idvault_settings_v1', cache:'idvault_cache_v1' };
+var BOOKING_TYPES = ['Airbnb','Direct'];
+var APPS_SCRIPT_CODE =
+'// ===== Sindooram ID Vault — Apps Script =====\n' +
+'// A separate, standalone script from the main Ledger one. It only reads\n' +
+'// booking basics (no money, status, or guest contact fields) from the\n' +
+'// Ledger Sheet, and saves uploaded documents to Drive. Deploy this as its\n' +
+'// own Web App with its own URL — do not reuse the Ledger\'s URL, since\n' +
+'// that one exposes full financial data.\n\n' +
+'// Paste your Ledger Google Sheet\'s ID here — open the Ledger Sheet, look\n' +
+'// at its URL: https://docs.google.com/spreadsheets/d/THIS_PART/edit\n' +
+'var LEDGER_SHEET_ID = \'PASTE_YOUR_LEDGER_SHEET_ID_HERE\';\n\n' +
+'// The Drive folder everything gets saved under. Created automatically the\n' +
+'// first time anyone uploads a document — nothing to set up by hand.\n' +
+'var VAULT_FOLDER_NAME = \'Sindooram ID Vault\';\n\n' +
+'// Handles GET requests: returns recent bookings for the picker.\n' +
+'function doGet(e) {\n' +
+'  return jsonResponse({ bookings: getRecentBookings() });\n' +
+'}\n\n' +
+'// Handles POST requests: saves one uploaded file and logs it.\n' +
+'function doPost(e) {\n' +
+'  var data = JSON.parse(e.postData.contents);\n' +
+'  return jsonResponse(saveUpload(data));\n' +
+'}\n\n' +
+'function jsonResponse(obj) {\n' +
+'  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);\n' +
+'}\n\n' +
+'// Only what\'s needed to identify a booking — no amount, status, remarks,\n' +
+'// or guest contact details are ever read or returned.\n' +
+'function getRecentBookings() {\n' +
+'  var sheet = SpreadsheetApp.openById(LEDGER_SHEET_ID).getSheetByName(\'Bookings\');\n' +
+'  if (!sheet) return [];\n' +
+'  var values = sheet.getDataRange().getValues();\n' +
+'  if (values.length < 2) return [];\n' +
+'  var headers = values[0];\n' +
+'  var col = {};\n' +
+'  headers.forEach(function (h, i) { col[h] = i; });\n' +
+'  var rows = values.slice(1).filter(function (row) { return row[0] !== \'\' && row[0] !== null; });\n' +
+'  rows.sort(function (a, b) {\n' +
+'    return String(b[col[\'Check-in\']]).localeCompare(String(a[col[\'Check-in\']]));\n' +
+'  });\n' +
+'  return rows.slice(0, 60).map(function (row) {\n' +
+'    return {\n' +
+'      bookingNumber: cleanText(row[col[\'Booking Number\']]),\n' +
+'      guestName: cleanText(row[col[\'Guest\']]),\n' +
+'      source: cleanText(row[col[\'Source\']]),\n' +
+'      checkIn: cleanText(row[col[\'Check-in\']]),\n' +
+'      checkOut: cleanText(row[col[\'Check-out\']])\n' +
+'    };\n' +
+'  });\n' +
+'}\n\n' +
+'// Ledger dates/text are stored with a leading apostrophe (forces plain\n' +
+'// text, see the Ledger\'s own script) — strip it back off, and format any\n' +
+'// stray real Date cell the same way.\n' +
+'function cleanText(val) {\n' +
+'  if (val instanceof Date) return Utilities.formatDate(val, Session.getScriptTimeZone(), \'yyyy-MM-dd\');\n' +
+'  var s = String(val == null ? \'\' : val);\n' +
+'  return s.charAt(0) === "\'" ? s.slice(1) : s;\n' +
+'}\n\n' +
+'// Saves one uploaded file into Drive under "Sindooram ID Vault/<Booking ID>/",\n' +
+'// and logs the upload as a row in the Ledger Sheet\'s "ID Vault Uploads" tab\n' +
+'// so there\'s a record of what\'s been collected, visible next to the bookings.\n' +
+'function saveUpload(data) {\n' +
+'  var bookingId = String(data.bookingId || \'\').trim() || \'Unlabeled\';\n' +
+'  var folder = getOrCreateFolder(getVaultRootFolder(), bookingId);\n\n' +
+'  var bytes = Utilities.base64Decode(data.fileBase64);\n' +
+'  var blob = Utilities.newBlob(bytes, data.mimeType || \'application/octet-stream\', data.fileName || \'upload\');\n' +
+'  var stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), \'yyyy-MM-dd_HHmmss\');\n' +
+'  blob.setName(stamp + \'_\' + (data.fileName || \'upload\'));\n' +
+'  var file = folder.createFile(blob);\n\n' +
+'  logUpload(bookingId, data.bookingType || \'\', data.checkInDate || \'\', file.getName(), data.uploadedBy || \'\', file.getUrl());\n\n' +
+'  return { status: \'ok\', fileUrl: file.getUrl(), folderUrl: folder.getUrl() };\n' +
+'}\n\n' +
+'function getVaultRootFolder() {\n' +
+'  return getOrCreateFolder(DriveApp.getRootFolder(), VAULT_FOLDER_NAME);\n' +
+'}\n\n' +
+'function getOrCreateFolder(parent, name) {\n' +
+'  var existing = parent.getFoldersByName(name);\n' +
+'  if (existing.hasNext()) return existing.next();\n' +
+'  return parent.createFolder(name);\n' +
+'}\n\n' +
+'function logUpload(bookingId, bookingType, checkInDate, fileName, uploadedBy, fileUrl) {\n' +
+'  var ss = SpreadsheetApp.openById(LEDGER_SHEET_ID);\n' +
+'  var sheet = ss.getSheetByName(\'ID Vault Uploads\') || ss.insertSheet(\'ID Vault Uploads\');\n' +
+'  if (sheet.getLastRow() === 0) {\n' +
+'    var headers = [\'Booking ID\', \'Booking Type\', \'Check-in\', \'File Name\', \'Uploaded By\', \'Uploaded At\', \'File Link\'];\n' +
+'    sheet.appendRow(headers);\n' +
+'    sheet.getRange(1, 1, 1, headers.length).setFontWeight(\'bold\');\n' +
+'  }\n' +
+'  sheet.appendRow([bookingId, bookingType, checkInDate, fileName, uploadedBy, new Date(), fileUrl]);\n' +
+'  sheet.autoResizeColumns(1, 7);\n' +
+'}';
+
+/* ---------- State ---------- */
+var state = { settings:{ appsScriptUrl:'', managerName:'' }, bookings:[] };
+var currentTab = 'upload';
+var connectionStatus = 'idle';
+var lastLoadedAt = null;
+var sessionUploads = [];
+
+/* ---------- Storage ---------- */
+function loadState(){
+  try{
+    var s = JSON.parse(localStorage.getItem(LS_KEYS.settings)) || {};
+    state.settings = { appsScriptUrl: s.appsScriptUrl || '', managerName: s.managerName || '' };
+  }catch(e){}
+  try{
+    var c = JSON.parse(localStorage.getItem(LS_KEYS.cache)) || {};
+    state.bookings = Array.isArray(c.bookings) ? c.bookings : [];
+  }catch(e){}
+}
+function saveSettings(){ localStorage.setItem(LS_KEYS.settings, JSON.stringify(state.settings)); }
+function cacheLocally(){ try{ localStorage.setItem(LS_KEYS.cache, JSON.stringify({ bookings: state.bookings })); }catch(e){} }
+
+/* ---------- Utils ---------- */
+function escapeHtml(str){
+  return String(str == null ? '' : str).replace(/[&<>"']/g, function(c){
+    return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
+  });
+}
+function todayStr(){ var d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
+function fmtShort(str){
+  if(!str) return '';
+  var d = new Date(str + 'T00:00:00');
+  if(isNaN(d)) return str;
+  return d.toLocaleDateString('en-IN', { day:'2-digit', month:'short' });
+}
+function timeAgo(iso){
+  var diff = Date.now() - new Date(iso).getTime();
+  var min = Math.floor(diff/60000);
+  if(min < 1) return 'just now';
+  if(min < 60) return min + ' min ago';
+  var hr = Math.floor(min/60);
+  return hr + ' hr' + (hr>1?'s':'') + ' ago';
+}
+
+/* ---------- Toast ---------- */
+var toastTimer = null;
+function toast(msg){
+  var el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function(){ el.classList.remove('show'); }, 2200);
+}
+
+/* ---------- Tabs ---------- */
+function switchTab(name){
+  currentTab = name;
+  document.querySelectorAll('.tab').forEach(function(t){ t.classList.toggle('active', t.id === 'tab-' + name); });
+  document.querySelectorAll('.navbtn').forEach(function(b){ b.classList.toggle('active', b.dataset.tab === name); });
+  document.getElementById('topbarTitle').textContent = { upload:'Upload', bookings:'Bookings', settings:'Settings' }[name];
+  if(name === 'bookings' && state.settings.appsScriptUrl) loadFromSheet(true);
+  renderCurrentTab();
+}
+function renderCurrentTab(){
+  if(currentTab === 'upload') renderUpload();
+  else if(currentTab === 'bookings') renderBookings();
+  else renderSettings();
+}
+
+/* ---------- Sheet I/O ---------- */
+function setConnStatus(status){
+  connectionStatus = status;
+  var el = document.getElementById('connStatus');
+  if(!el) return;
+  var map = {
+    idle:{ cls:'off', text:'Not connected' },
+    loading:{ cls:'syncing', text:'Loading…' },
+    live:{ cls:'live', text:'Live' },
+    syncing:{ cls:'syncing', text:'Working…' },
+    error:{ cls:'error', text:'Offline — showing last saved copy' }
+  };
+  var m = map[status] || map.idle;
+  el.innerHTML = '<span class="conn-dot conn-dot-' + m.cls + '"></span>' + m.text;
+}
+function loadFromSheet(silent){
+  if(!state.settings.appsScriptUrl){ setConnStatus('idle'); return Promise.resolve(); }
+  if(!silent) setConnStatus('loading');
+  return fetch(state.settings.appsScriptUrl, { method:'GET' }).then(function(res){
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    return res.json();
+  }).then(function(data){
+    state.bookings = Array.isArray(data.bookings) ? data.bookings : [];
+    cacheLocally();
+    lastLoadedAt = Date.now();
+    setConnStatus('live');
+    if(currentTab === 'bookings' || currentTab === 'settings') renderCurrentTab();
+  }).catch(function(){
+    setConnStatus('error');
+    if(!silent) toast('Could not reach the Sheet');
+  });
+}
+
+/* ---------- Upload tab ---------- */
+function uploadIconSVG(){
+  return '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>';
+}
+function fileIconSVG(){
+  return '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>';
+}
+function renderUpload(){
+  var el = document.getElementById('tab-upload');
+  if(!state.settings.appsScriptUrl){ el.innerHTML = notConnectedHTML(); return; }
+  var uploadsHTML = sessionUploads.length ? sessionUploads.map(function(u,i){
+    var cls = u.status === 'done' ? 'done' : (u.status === 'failed' ? 'failed' : 'uploading');
+    var label = u.status === 'done' ? 'Uploaded' : (u.status === 'failed' ? 'Failed' : 'Uploading…');
+    return '<div class="upload-row"><span class="name">' + escapeHtml(u.name) + '</span><span class="upload-status ' + cls + '">' + label + '</span></div>';
+  }).join('') : '<p class="empty-hint">Nothing uploaded yet this session.</p>';
+
+  el.innerHTML =
+    '<div class="card">' +
+      '<div class="field-group"><label class="field-label">Your name</label><input type="text" id="managerNameInput" class="field-input" placeholder="e.g. Ravi" value="' + escapeHtml(state.settings.managerName) + '"></div>' +
+      '<div class="field-group"><label class="field-label">Booking ID</label><input type="text" id="bookingIdInput" class="field-input" placeholder="e.g. BK-0007"></div>' +
+      '<div class="field-group"><label class="field-label">Booking type</label>' +
+        '<div class="seg" id="bookingTypeSeg">' + BOOKING_TYPES.map(function(t,i){ return '<button type="button" class="seg-btn ' + (i===0?'active':'') + '" data-action="set-booking-type" data-type="' + t + '">' + t + '</button>'; }).join('') + '</div>' +
+      '</div>' +
+      '<div class="field-group"><label class="field-label">Check-in date</label><input type="date" id="uploadCheckIn" class="field-input" value="' + todayStr() + '"></div>' +
+      '<div class="upload-actions">' +
+        '<button type="button" class="upload-btn" data-action="take-photo">' + uploadIconSVG() + 'Take Photo</button>' +
+        '<button type="button" class="upload-btn" data-action="choose-file">' + fileIconSVG() + 'Choose File</button>' +
+      '</div>' +
+    '</div>' +
+    '<div class="card"><h3 class="card-title">Uploaded this session</h3><div class="upload-list">' + uploadsHTML + '</div></div>';
+}
+
+/* ---------- Bookings tab ---------- */
+function connectIconSVG(){
+  return '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M12 2a10 10 0 100 20 10 10 0 000-20z"/><path d="M8 12h8M12 8v8"/></svg>';
+}
+function notConnectedHTML(){
+  return '<div class="empty-state">' +
+    '<div class="empty-state-icon">' + connectIconSVG() + '</div>' +
+    '<h3 class="card-title">Connect the Vault</h3>' +
+    '<p class="empty-hint">Set up the Apps Script Web App URL in Settings to load bookings and save uploads.</p>' +
+    '<button type="button" class="btn-primary" data-action="switch-tab" data-tab="settings">Go to Settings</button>' +
+    '</div>';
+}
+function bookingCardHTML(b){
+  return '<div class="booking-card" data-action="pick-booking" data-number="' + escapeHtml(b.bookingNumber) + '">' +
+    '<div class="booking-card-top"><strong class="booking-guest">' + escapeHtml(b.guestName || 'Guest') + '</strong><span class="badge">' + escapeHtml(b.source || '') + '</span></div>' +
+    '<div class="booking-meta">#' + escapeHtml(b.bookingNumber) + '</div>' +
+    '<div class="booking-dates">' + fmtShort(b.checkIn) + ' → ' + fmtShort(b.checkOut) + '</div>' +
+  '</div>';
+}
+function renderBookings(){
+  var el = document.getElementById('tab-bookings');
+  if(!state.settings.appsScriptUrl){ el.innerHTML = notConnectedHTML(); return; }
+  var list = state.bookings.length ? state.bookings.map(bookingCardHTML).join('') : '<p class="empty-hint">No bookings found yet.</p>';
+  el.innerHTML = '<p class="empty-hint" style="margin-bottom:12px;">Tap a booking to fill in its details on the Upload tab.</p><div class="booking-list">' + list + '</div>';
+}
+
+/* ---------- Settings tab ---------- */
+function sheetStatusLabel(){
+  if(!state.settings.appsScriptUrl) return 'Not connected yet — paste your Apps Script Web App URL below and tap "Save & connect".';
+  if(connectionStatus === 'error') return 'Could not reach the Sheet just now — will keep retrying automatically.';
+  if(lastLoadedAt) return 'Connected. Last refreshed ' + timeAgo(new Date(lastLoadedAt).toISOString()) + '.';
+  return 'Connected — loading…';
+}
+function guideHTML(){
+  return '<div class="guide-body">' +
+    '<p>This is a separate, standalone script from the main Ledger one — it only reads booking basics (no money, status, or guest contact fields) and saves uploaded files to Drive.</p>' +
+    '<ol>' +
+    '<li><strong>Create a new script.</strong> Go to script.google.com &rarr; New project. (Not inside the Ledger Sheet — this one stands alone.)</li>' +
+    '<li><strong>Paste the code below</strong>, then find the line <code>LEDGER_SHEET_ID = \'PASTE_YOUR_LEDGER_SHEET_ID_HERE\'</code> and replace it with your Ledger Sheet\'s ID (open the Ledger Sheet, copy the long ID from its URL, between <code>/d/</code> and <code>/edit</code>).</li>' +
+    '<li><strong>Save</strong> (Ctrl+S), name the project "Sindooram ID Vault Sync".</li>' +
+    '<li><strong>Deploy as a Web App.</strong> Deploy &rarr; New deployment &rarr; gear icon &rarr; Web app. "Execute as" Me, "Who has access" Anyone. Deploy, authorize it, and copy the Web app URL (ends in <code>/exec</code>).</li>' +
+    '<li><strong>Connect it here.</strong> Paste the URL below and tap "Save &amp; connect". The "Sindooram ID Vault" Drive folder is created automatically the first time someone uploads.</li>' +
+    '</ol>' +
+    '<div class="code-block" id="scriptCode">' + escapeHtml(APPS_SCRIPT_CODE) + '</div>' +
+    '<button type="button" class="copy-btn" data-action="copy-script">Copy script</button>' +
+    '<div class="guide-note">To update this later (e.g. after editing the script), Save in the editor, then Deploy &rarr; Manage deployments &rarr; edit &rarr; set Version to "New version" &rarr; Deploy. Saving alone does not update the live URL.</div>' +
+    '</div>';
+}
+function renderSettings(){
+  var el = document.getElementById('tab-settings');
+  el.innerHTML =
+    '<div class="card"><h3 class="card-title">Your name</h3>' +
+      '<p class="empty-hint" style="margin-top:-4px;">Used to tag every upload with who added it.</p>' +
+      '<div class="field-group"><label class="field-label">Your name</label><input type="text" id="settingsManagerName" class="field-input" placeholder="e.g. Ravi" value="' + escapeHtml(state.settings.managerName) + '"></div>' +
+    '</div>' +
+    '<div class="card"><h3 class="card-title">Connection</h3>' +
+      '<div class="field-group"><label class="field-label">Apps Script Web App URL</label><input type="url" id="appsScriptUrlInput" class="field-input" placeholder="https://script.google.com/macros/s/.../exec" value="' + escapeHtml(state.settings.appsScriptUrl) + '"></div>' +
+      '<div class="settings-actions">' +
+        '<button type="button" class="btn-primary" data-action="save-settings">Save &amp; connect</button>' +
+        '<button type="button" class="btn-secondary" data-action="refresh-now">Refresh now</button>' +
+      '</div>' +
+      '<p class="sync-status" id="syncStatusText">' + sheetStatusLabel() + '</p>' +
+    '</div>' +
+    '<details class="card"><summary>How to connect (one-time setup)</summary>' + guideHTML() + '</details>';
+}
+
+/* ---------- Upload logic ---------- */
+var selectedBookingType = BOOKING_TYPES[0];
+function fileToBase64(file){
+  return new Promise(function(resolve, reject){
+    var reader = new FileReader();
+    reader.onload = function(){ resolve(String(reader.result).split(',')[1]); };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+function uploadSelectedFile(file){
+  if(!file) return;
+  if(!state.settings.appsScriptUrl){ toast('Connect in Settings first'); return; }
+  var bookingIdInput = document.getElementById('bookingIdInput');
+  var bookingId = bookingIdInput ? bookingIdInput.value.trim() : '';
+  if(!bookingId){ toast('Enter a Booking ID first'); return; }
+  var managerNameInput = document.getElementById('managerNameInput');
+  var managerName = managerNameInput ? managerNameInput.value.trim() : (state.settings.managerName || '');
+  if(managerName && managerName !== state.settings.managerName){
+    state.settings.managerName = managerName;
+    saveSettings();
+  }
+  var checkInInput = document.getElementById('uploadCheckIn');
+  var checkInDate = checkInInput ? checkInInput.value : '';
+
+  var entry = { name: file.name, status:'uploading' };
+  sessionUploads.unshift(entry);
+  renderUpload();
+  setConnStatus('syncing');
+
+  fileToBase64(file).then(function(base64){
+    return fetch(state.settings.appsScriptUrl, {
+      method:'POST',
+      headers:{ 'Content-Type':'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        bookingId: bookingId,
+        bookingType: selectedBookingType,
+        checkInDate: checkInDate,
+        fileName: file.name,
+        mimeType: file.type || 'application/octet-stream',
+        fileBase64: base64,
+        uploadedBy: managerName || 'Unknown'
+      })
+    });
+  }).then(function(res){
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    return res.json();
+  }).then(function(){
+    entry.status = 'done';
+    setConnStatus('live');
+    toast('Uploaded');
+    renderUpload();
+  }).catch(function(){
+    entry.status = 'failed';
+    setConnStatus('error');
+    toast('Upload failed — check your connection');
+    renderUpload();
+  });
+}
+
+/* ---------- Settings actions ---------- */
+function saveSettingsFromForm(){
+  state.settings.managerName = document.getElementById('settingsManagerName').value.trim();
+  var newUrl = document.getElementById('appsScriptUrlInput').value.trim();
+  state.settings.appsScriptUrl = newUrl;
+  saveSettings();
+  toast('Settings saved');
+  if(state.settings.appsScriptUrl) loadFromSheet(false);
+  else { setConnStatus('idle'); renderCurrentTab(); }
+}
+function copyScript(){
+  var text = document.getElementById('scriptCode') ? document.getElementById('scriptCode').textContent : APPS_SCRIPT_CODE;
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(function(){ toast('Script copied'); }).catch(function(){ toast('Could not copy — select manually'); });
+  }else{
+    toast('Could not copy — select manually');
+  }
+}
+
+/* ---------- Global click delegation ---------- */
+document.addEventListener('click', function(e){
+  var el = e.target.closest('[data-action]');
+  if(!el) return;
+  var action = el.dataset.action;
+  switch(action){
+    case 'switch-tab': switchTab(el.dataset.tab); break;
+    case 'refresh-now': loadFromSheet(false).then(function(){ toast('Refreshed'); }); break;
+    case 'save-settings': saveSettingsFromForm(); break;
+    case 'copy-script': copyScript(); break;
+    case 'set-booking-type':
+      selectedBookingType = el.dataset.type;
+      document.querySelectorAll('#bookingTypeSeg .seg-btn').forEach(function(b){ b.classList.toggle('active', b.dataset.type === selectedBookingType); });
+      break;
+    case 'take-photo':
+      if(!state.settings.appsScriptUrl){ toast('Connect in Settings first'); break; }
+      document.getElementById('cameraInput').click();
+      break;
+    case 'choose-file':
+      if(!state.settings.appsScriptUrl){ toast('Connect in Settings first'); break; }
+      document.getElementById('fileInput').click();
+      break;
+    case 'pick-booking':
+      var b = state.bookings.find(function(x){ return x.bookingNumber === el.dataset.number; });
+      if(b){
+        switchTab('upload');
+        setTimeout(function(){
+          var idInput = document.getElementById('bookingIdInput');
+          var ciInput = document.getElementById('uploadCheckIn');
+          if(idInput) idInput.value = b.bookingNumber;
+          if(ciInput && b.checkIn) ciInput.value = b.checkIn;
+          if(b.source){
+            selectedBookingType = BOOKING_TYPES.indexOf(b.source) !== -1 ? b.source : selectedBookingType;
+            document.querySelectorAll('#bookingTypeSeg .seg-btn').forEach(function(btn){ btn.classList.toggle('active', btn.dataset.type === selectedBookingType); });
+          }
+          toast('Booking details filled in');
+        }, 0);
+      }
+      break;
+  }
+});
+
+/* ---------- Init ---------- */
+function init(){
+  loadState();
+  document.getElementById('cameraInput').addEventListener('change', function(e){
+    var file = e.target.files[0];
+    e.target.value = '';
+    if(file) uploadSelectedFile(file);
+  });
+  document.getElementById('fileInput').addEventListener('change', function(e){
+    var file = e.target.files[0];
+    e.target.value = '';
+    if(file) uploadSelectedFile(file);
+  });
+  setConnStatus(state.settings.appsScriptUrl ? 'loading' : 'idle');
+  switchTab('upload');
+  if(state.settings.appsScriptUrl) loadFromSheet(false);
+}
+
+init();
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load', function(){
+    navigator.serviceWorker.register('sw.js').catch(function(){});
+  });
+}
+</script>
+</body>
+</html>
