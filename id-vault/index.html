@@ -131,6 +131,8 @@ textarea.field-input{ resize:vertical; min-height:64px; }
 .upload-status.failed{ background:rgba(208,59,59,.15); color:var(--critical); }
 .remove-pending-btn{ background:none; border:0; color:var(--critical); font-size:12px; font-weight:700; cursor:pointer; padding:4px 8px; flex:none; }
 .remove-pending-btn:hover{ text-decoration:underline; }
+.view-link{ color:var(--accent); font-size:12px; font-weight:700; text-decoration:none; padding:4px 8px; flex:none; }
+.view-link:hover{ text-decoration:underline; }
 .btn-primary:disabled{ opacity:.45; cursor:not-allowed; box-shadow:none; }
 
 .detail-row{ display:flex; justify-content:space-between; align-items:baseline; gap:10px; padding:9px 0; border-bottom:1px solid var(--grid); font-size:14px; }
@@ -249,6 +251,8 @@ var APPS_SCRIPT_CODE =
 '}\n\n' +
 '// Only what the manager needs to identify a booking — no amount, status,\n' +
 '// source, check-out date, or guest contact details are ever read or returned.\n' +
+'// Status is read only to filter to Confirmed bookings; it\'s never included\n' +
+'// in what gets sent back.\n' +
 'function getRecentBookings() {\n' +
 '  var sheet = SpreadsheetApp.openById(LEDGER_SHEET_ID).getSheetByName(\'Bookings\');\n' +
 '  if (!sheet) return [];\n' +
@@ -257,7 +261,10 @@ var APPS_SCRIPT_CODE =
 '  var headers = values[0];\n' +
 '  var col = {};\n' +
 '  headers.forEach(function (h, i) { col[h] = i; });\n' +
-'  var rows = values.slice(1).filter(function (row) { return row[0] !== \'\' && row[0] !== null; });\n' +
+'  var rows = values.slice(1).filter(function (row) {\n' +
+'    if (row[0] === \'\' || row[0] === null) return false;\n' +
+'    return String(row[col[\'Status\']] || \'\').trim().toLowerCase() === \'confirmed\';\n' +
+'  });\n' +
 '  rows.sort(function (a, b) {\n' +
 '    return String(b[col[\'Check-in\']]).localeCompare(String(a[col[\'Check-in\']]));\n' +
 '  });\n' +
@@ -482,7 +489,7 @@ function renderPendingList(){
   var btn = document.getElementById('uploadSubmitBtn');
   if(!listEl || !btn) return;
   listEl.innerHTML = pendingFiles.length ? pendingFiles.map(function(p){
-    return '<div class="upload-row"><span class="name">' + escapeHtml(p.file.name) + '</span><button type="button" class="remove-pending-btn" data-action="remove-pending" data-id="' + p.id + '">Remove</button></div>';
+    return '<div class="upload-row"><span class="name">' + escapeHtml(p.file.name) + '</span><a class="view-link" href="' + p.previewUrl + '" target="_blank" rel="noopener">View</a><button type="button" class="remove-pending-btn" data-action="remove-pending" data-id="' + p.id + '">Remove</button></div>';
   }).join('') : '<p class="empty-hint">Nothing selected yet — tap Take Photo or Choose File above.</p>';
   btn.disabled = pendingFiles.length === 0;
   btn.textContent = pendingFiles.length ? ('Submit ' + pendingFiles.length + ' file' + (pendingFiles.length > 1 ? 's' : '')) : 'Submit';
@@ -493,7 +500,8 @@ function renderSessionUploads(){
   el.innerHTML = sessionUploads.length ? sessionUploads.map(function(u){
     var cls = u.status === 'done' ? 'done' : (u.status === 'failed' ? 'failed' : 'uploading');
     var label = u.status === 'done' ? 'Uploaded' : (u.status === 'failed' ? 'Failed' : 'Uploading…');
-    return '<div class="upload-row"><span class="name">' + escapeHtml(u.name) + '</span><span class="upload-status ' + cls + '">' + label + '</span></div>';
+    var viewLink = (u.status === 'done' && u.url) ? '<a class="view-link" href="' + escapeHtml(u.url) + '" target="_blank" rel="noopener">View</a>' : '';
+    return '<div class="upload-row"><span class="name">' + escapeHtml(u.name) + '</span>' + viewLink + '<span class="upload-status ' + cls + '">' + label + '</span></div>';
   }).join('') : '<p class="empty-hint">Nothing uploaded yet this session.</p>';
 }
 
@@ -548,10 +556,12 @@ function fileToBase64(file){
 }
 function addPendingFile(file){
   if(!file) return;
-  pendingFiles.push({ id: 'p' + (++pendingIdCounter), file: file });
+  pendingFiles.push({ id: 'p' + (++pendingIdCounter), file: file, previewUrl: URL.createObjectURL(file) });
   renderPendingList();
 }
 function removePendingFile(id){
+  var target = pendingFiles.find(function(p){ return p.id === id; });
+  if(target && target.previewUrl) URL.revokeObjectURL(target.previewUrl);
   pendingFiles = pendingFiles.filter(function(p){ return p.id !== id; });
   renderPendingList();
 }
@@ -604,8 +614,9 @@ function submitUploads(){
   var chain = Promise.resolve();
   entries.forEach(function(pair){
     chain = chain.then(function(){
-      return uploadOneFile(pair.file, meta).then(function(){
+      return uploadOneFile(pair.file, meta).then(function(result){
         pair.entry.status = 'done';
+        pair.entry.url = result && result.fileUrl;
         renderSessionUploads();
       }).catch(function(){
         pair.entry.status = 'failed';
@@ -614,6 +625,7 @@ function submitUploads(){
     });
   });
   chain.then(function(){
+    toSubmit.forEach(function(p){ if(p.previewUrl) URL.revokeObjectURL(p.previewUrl); });
     var anyFailed = entries.some(function(pair){ return pair.entry.status === 'failed'; });
     setConnStatus(anyFailed ? 'error' : 'live');
     toast(anyFailed ? 'Some files failed — try again' : 'Uploaded');
