@@ -20,9 +20,10 @@ function doPost(e) {
 // Reads both sheets and returns them as plain JS objects/arrays.
 function readAll() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
+  backfillMissingBookingIds(ss);
   return {
     transactions: readSheet(ss, 'Transactions', ['id','type','date','category','subcategory','description','amount','addedBy','recurrence','createdAt','updatedAt']),
-    bookings: readSheet(ss, 'Bookings', ['id','bookingNumber','guestName','guestEmail','guestPhone','checkIn','checkOut','source','amount','status','remarks','addedBy','createdAt','updatedAt'])
+    bookings: readSheet(ss, 'Bookings', ['id','bookingNumber','guestName','guestEmail','guestPhone','checkIn','checkOut','source','amount','status','remarks','addedBy','createdAt','updatedAt','guests'])
   };
 }
 
@@ -59,6 +60,31 @@ function readSheet(ss, name, keys) {
     });
 }
 
+// Assigns a temp ID to any Bookings row that has data but no ID — e.g. a
+// row an outside automation (Airbnb email → Sheet) appended directly,
+// which has no concept of our ID format. Without an ID the row is invisible
+// to the app (readSheet skips it); once it has any ID it shows up and can
+// be edited normally, including filling in the real Booking Number by hand.
+function backfillMissingBookingIds(ss) {
+  ss = ss || SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Bookings');
+  if (!sheet) return;
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return;
+  var range = sheet.getRange(2, 1, lastRow - 1, 15);
+  var values = range.getValues();
+  var changed = false;
+  values.forEach(function (row, i) {
+    var hasData = row.slice(1).some(function (v) { return v !== '' && v !== null; });
+    if ((row[0] === '' || row[0] === null) && hasData) {
+      row[0] = 'temp_' + new Date().getTime().toString(36) + Math.random().toString(36).slice(2, 7);
+      values[i] = row;
+      changed = true;
+    }
+  });
+  if (changed) range.setValues(values);
+}
+
 // A leading apostrophe is Sheets' own "treat this as literal text" marker —
 // it works the same whether typed by hand or set via the API, and (unlike
 // setNumberFormat) doesn't depend on a format change landing before the
@@ -91,11 +117,11 @@ function writeTransactions(ss, transactions) {
 function writeBookings(ss, bookings) {
   var sheet = ss.getSheetByName('Bookings') || ss.insertSheet('Bookings');
   sheet.clear();
-  var headers = ['ID', 'Booking Number', 'Guest', 'Guest Email', 'Guest Phone', 'Check-in', 'Check-out', 'Source', 'Amount', 'Status', 'Remarks', 'Added By', 'Created At', 'Updated At'];
+  var headers = ['ID', 'Booking Number', 'Guest', 'Guest Email', 'Guest Phone', 'Check-in', 'Check-out', 'Source', 'Amount', 'Status', 'Remarks', 'Added By', 'Created At', 'Updated At', 'Guests'];
   sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
   if (bookings.length > 0) {
     var rows = bookings.map(function (b) {
-      return [b.id, b.bookingNumber, b.guestName, b.guestEmail || '', b.guestPhone || '', forceText(b.checkIn), forceText(b.checkOut), b.source, b.amount, b.status, b.remarks || '', b.addedBy, forceText(b.createdAt), forceText(b.updatedAt)];
+      return [b.id, b.bookingNumber, b.guestName, b.guestEmail || '', b.guestPhone || '', forceText(b.checkIn), forceText(b.checkOut), b.source, b.amount, b.status, b.remarks || '', b.addedBy, forceText(b.createdAt), forceText(b.updatedAt), b.guests || ''];
     });
     sheet.getRange(2, 6, rows.length, 2).setNumberFormat('@');
     sheet.getRange(2, 13, rows.length, 2).setNumberFormat('@');

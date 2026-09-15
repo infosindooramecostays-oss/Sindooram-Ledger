@@ -52,7 +52,8 @@ function getRecentBookings() {
       bookingNumber: cleanText(row[col['Booking Number']]),
       guestName: cleanText(row[col['Guest']]),
       checkIn: cleanText(row[col['Check-in']]),
-      remarks: cleanText(row[col['Remarks']])
+      remarks: cleanText(row[col['Remarks']]),
+      guests: cleanText(row[col['Guests']])
     };
   });
 }

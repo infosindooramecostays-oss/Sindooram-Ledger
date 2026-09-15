@@ -558,9 +558,15 @@ details.card summary:hover{ color:var(--accent); }
         <label class="field-label">Remarks <span class="field-optional">optional</span></label>
         <textarea id="bookingRemarks" class="field-input" rows="2" placeholder="Any notes about this booking"></textarea>
       </div>
-      <div class="field-group">
-        <label class="field-label">Booking number</label>
-        <input required type="text" id="bookingNumber" class="field-input">
+      <div class="field-row">
+        <div class="field-group">
+          <label class="field-label">No. of guests <span class="field-optional">optional</span></label>
+          <input type="number" min="0" step="1" id="bookingGuests" class="field-input" inputmode="numeric">
+        </div>
+        <div class="field-group">
+          <label class="field-label">Booking number</label>
+          <input required type="text" id="bookingNumber" class="field-input">
+        </div>
       </div>
       <div class="field-group">
         <label class="field-label">Added by</label>
@@ -652,9 +658,10 @@ var APPS_SCRIPT_CODE =
 '// Reads both sheets and returns them as plain JS objects/arrays.\n' +
 'function readAll() {\n' +
 '  var ss = SpreadsheetApp.getActiveSpreadsheet();\n' +
+'  backfillMissingBookingIds(ss);\n' +
 '  return {\n' +
 '    transactions: readSheet(ss, \'Transactions\', [\'id\',\'type\',\'date\',\'category\',\'subcategory\',\'description\',\'amount\',\'addedBy\',\'recurrence\',\'createdAt\',\'updatedAt\']),\n' +
-'    bookings: readSheet(ss, \'Bookings\', [\'id\',\'bookingNumber\',\'guestName\',\'guestEmail\',\'guestPhone\',\'checkIn\',\'checkOut\',\'source\',\'amount\',\'status\',\'remarks\',\'addedBy\',\'createdAt\',\'updatedAt\'])\n' +
+'    bookings: readSheet(ss, \'Bookings\', [\'id\',\'bookingNumber\',\'guestName\',\'guestEmail\',\'guestPhone\',\'checkIn\',\'checkOut\',\'source\',\'amount\',\'status\',\'remarks\',\'addedBy\',\'createdAt\',\'updatedAt\',\'guests\'])\n' +
 '  };\n' +
 '}\n\n' +
 '// Wraps an object as the JSON response the app expects.\n' +
@@ -687,6 +694,30 @@ var APPS_SCRIPT_CODE =
 '      return obj;\n' +
 '    });\n' +
 '}\n\n' +
+'// Assigns a temp ID to any Bookings row that has data but no ID — e.g. a\n' +
+'// row an outside automation (Airbnb email → Sheet) appended directly,\n' +
+'// which has no concept of our ID format. Without an ID the row is invisible\n' +
+'// to the app (readSheet skips it); once it has any ID it shows up and can\n' +
+'// be edited normally, including filling in the real Booking Number by hand.\n' +
+'function backfillMissingBookingIds(ss) {\n' +
+'  ss = ss || SpreadsheetApp.getActiveSpreadsheet();\n' +
+'  var sheet = ss.getSheetByName(\'Bookings\');\n' +
+'  if (!sheet) return;\n' +
+'  var lastRow = sheet.getLastRow();\n' +
+'  if (lastRow < 2) return;\n' +
+'  var range = sheet.getRange(2, 1, lastRow - 1, 15);\n' +
+'  var values = range.getValues();\n' +
+'  var changed = false;\n' +
+'  values.forEach(function (row, i) {\n' +
+'    var hasData = row.slice(1).some(function (v) { return v !== \'\' && v !== null; });\n' +
+'    if ((row[0] === \'\' || row[0] === null) && hasData) {\n' +
+'      row[0] = \'temp_\' + new Date().getTime().toString(36) + Math.random().toString(36).slice(2, 7);\n' +
+'      values[i] = row;\n' +
+'      changed = true;\n' +
+'    }\n' +
+'  });\n' +
+'  if (changed) range.setValues(values);\n' +
+'}\n\n' +
 '// A leading apostrophe is Sheets\' own "treat this as literal text" marker —\n' +
 '// it works the same whether typed by hand or set via the API, and (unlike\n' +
 '// setNumberFormat) doesn\'t depend on a format change landing before the\n' +
@@ -717,11 +748,11 @@ var APPS_SCRIPT_CODE =
 'function writeBookings(ss, bookings) {\n' +
 '  var sheet = ss.getSheetByName(\'Bookings\') || ss.insertSheet(\'Bookings\');\n' +
 '  sheet.clear();\n' +
-'  var headers = [\'ID\', \'Booking Number\', \'Guest\', \'Guest Email\', \'Guest Phone\', \'Check-in\', \'Check-out\', \'Source\', \'Amount\', \'Status\', \'Remarks\', \'Added By\', \'Created At\', \'Updated At\'];\n' +
+'  var headers = [\'ID\', \'Booking Number\', \'Guest\', \'Guest Email\', \'Guest Phone\', \'Check-in\', \'Check-out\', \'Source\', \'Amount\', \'Status\', \'Remarks\', \'Added By\', \'Created At\', \'Updated At\', \'Guests\'];\n' +
 '  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);\n' +
 '  if (bookings.length > 0) {\n' +
 '    var rows = bookings.map(function (b) {\n' +
-'      return [b.id, b.bookingNumber, b.guestName, b.guestEmail || \'\', b.guestPhone || \'\', forceText(b.checkIn), forceText(b.checkOut), b.source, b.amount, b.status, b.remarks || \'\', b.addedBy, forceText(b.createdAt), forceText(b.updatedAt)];\n' +
+'      return [b.id, b.bookingNumber, b.guestName, b.guestEmail || \'\', b.guestPhone || \'\', forceText(b.checkIn), forceText(b.checkOut), b.source, b.amount, b.status, b.remarks || \'\', b.addedBy, forceText(b.createdAt), forceText(b.updatedAt), b.guests || \'\'];\n' +
 '    });\n' +
 '    sheet.getRange(2, 6, rows.length, 2).setNumberFormat(\'@\');\n' +
 '    sheet.getRange(2, 13, rows.length, 2).setNumberFormat(\'@\');\n' +
@@ -1364,7 +1395,7 @@ function bookingCardHTML(b){
   return '<div class="booking-card" data-action="edit-booking" data-id="' + b.id + '" style="border-left:4px solid ' + barColor + ';">' +
     '<div class="booking-card-top"><strong class="booking-guest">' + escapeHtml(b.guestName) + '</strong><span class="badge badge-' + cls + '">' + escapeHtml(b.status) + '</span></div>' +
     '<div class="booking-meta">#' + escapeHtml(b.bookingNumber) + ' &middot; ' + escapeHtml(b.source) + '</div>' +
-    '<div class="booking-dates">' + fmtShort(parseDateOnly(b.checkIn)) + ' → ' + fmtShort(parseDateOnly(b.checkOut)) + ' &middot; ' + nights + ' night' + (nights===1?'':'s') + '</div>' +
+    '<div class="booking-dates">' + fmtShort(parseDateOnly(b.checkIn)) + ' → ' + fmtShort(parseDateOnly(b.checkOut)) + ' &middot; ' + nights + ' night' + (nights===1?'':'s') + (b.guests ? ' &middot; ' + b.guests + ' guest' + (b.guests===1?'':'s') : '') + '</div>' +
     '<div class="booking-bottom">' +
       '<button type="button" class="row-delete-btn" data-action="delete-booking-from-row" data-id="' + b.id + '" aria-label="Delete booking">' + trashIconSVG() + '</button>' +
       '<span class="booking-amount">' + money(b.amount) + '</span>' +
@@ -1611,7 +1642,7 @@ function deleteTxn(id){
 }
 
 /* ---------- Booking modal ---------- */
-var bookingModalOverlay, bookingForm, bookingIdInput, bookingNumberInput, guestNameInput, guestEmailInput, guestPhoneInput, checkInInput, checkOutInput, bookingSourceSel, bookingAmountInput, bookingStatusSel, bookingStatusOther, bookingRemarksInput, bookingAddedByInput, bookingDeleteBtn, bookingModalTitle;
+var bookingModalOverlay, bookingForm, bookingIdInput, bookingNumberInput, guestNameInput, guestEmailInput, guestPhoneInput, bookingGuestsInput, checkInInput, checkOutInput, bookingSourceSel, bookingAmountInput, bookingStatusSel, bookingStatusOther, bookingRemarksInput, bookingAddedByInput, bookingDeleteBtn, bookingModalTitle;
 function nextBookingNumber(){ return 'BK-' + String(state.bookings.length + 1).padStart(4,'0'); }
 function getBookingStatusList(){
   var seen = [];
@@ -1627,6 +1658,7 @@ function openBookingModal(id){
   guestNameInput.value = b ? b.guestName : '';
   guestEmailInput.value = b ? (b.guestEmail || '') : '';
   guestPhoneInput.value = b ? (b.guestPhone || '') : '';
+  bookingGuestsInput.value = b && b.guests ? b.guests : '';
   checkInInput.value = b ? b.checkIn : todayStr();
   checkOutInput.value = b ? b.checkOut : todayStr();
   bookingSourceSel.value = b ? b.source : BOOKING_SOURCES[0];
@@ -1696,6 +1728,7 @@ function normalizeBookings(list){
       guestName: b.guestName || '',
       guestEmail: b.guestEmail || '',
       guestPhone: b.guestPhone || '',
+      guests: Number(b.guests) || 0,
       checkIn: String(b.checkIn || '').slice(0,10),
       checkOut: String(b.checkOut || '').slice(0,10),
       source: b.source || 'Direct',
@@ -1899,6 +1932,7 @@ function init(){
   guestNameInput = document.getElementById('guestName');
   guestEmailInput = document.getElementById('guestEmail');
   guestPhoneInput = document.getElementById('guestPhone');
+  bookingGuestsInput = document.getElementById('bookingGuests');
   checkInInput = document.getElementById('checkIn');
   checkOutInput = document.getElementById('checkOut');
   bookingSourceSel = document.getElementById('bookingSource');
@@ -1963,6 +1997,7 @@ function init(){
       guestName: guestNameInput.value.trim(),
       guestEmail: guestEmailInput.value.trim(),
       guestPhone: guestPhoneInput.value.trim(),
+      guests: parseInt(bookingGuestsInput.value, 10) || 0,
       checkIn: checkInInput.value,
       checkOut: checkOutInput.value,
       source: bookingSourceSel.value,
