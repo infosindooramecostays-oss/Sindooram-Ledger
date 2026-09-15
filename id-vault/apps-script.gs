@@ -29,9 +29,9 @@ function jsonResponse(obj) {
 }
 
 // Only what the manager needs to identify a booking — no amount, status,
-// source, check-out date, or guest contact details are ever read or returned.
-// Status is read only to filter to Confirmed bookings; it's never included
-// in what gets sent back.
+// source, or guest contact details are ever read or returned. Status is
+// read only to filter to Confirmed bookings; it's never included in what
+// gets sent back.
 function getRecentBookings() {
   var sheet = SpreadsheetApp.openById(LEDGER_SHEET_ID).getSheetByName('Bookings');
   if (!sheet) return [];
@@ -52,6 +52,7 @@ function getRecentBookings() {
       bookingNumber: cleanText(row[col['Booking Number']]),
       guestName: cleanText(row[col['Guest']]),
       checkIn: cleanText(row[col['Check-in']]),
+      checkOut: cleanText(row[col['Check-out']]),
       remarks: cleanText(row[col['Remarks']]),
       guests: cleanText(row[col['Guests']])
     };

@@ -289,9 +289,9 @@ var APPS_SCRIPT_CODE =
 '  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);\n' +
 '}\n\n' +
 '// Only what the manager needs to identify a booking — no amount, status,\n' +
-'// source, check-out date, or guest contact details are ever read or returned.\n' +
-'// Status is read only to filter to Confirmed bookings; it\'s never included\n' +
-'// in what gets sent back.\n' +
+'// source, or guest contact details are ever read or returned. Status is\n' +
+'// read only to filter to Confirmed bookings; it\'s never included in what\n' +
+'// gets sent back.\n' +
 'function getRecentBookings() {\n' +
 '  var sheet = SpreadsheetApp.openById(LEDGER_SHEET_ID).getSheetByName(\'Bookings\');\n' +
 '  if (!sheet) return [];\n' +
@@ -312,6 +312,7 @@ var APPS_SCRIPT_CODE =
 '      bookingNumber: cleanText(row[col[\'Booking Number\']]),\n' +
 '      guestName: cleanText(row[col[\'Guest\']]),\n' +
 '      checkIn: cleanText(row[col[\'Check-in\']]),\n' +
+'      checkOut: cleanText(row[col[\'Check-out\']]),\n' +
 '      remarks: cleanText(row[col[\'Remarks\']]),\n' +
 '      guests: cleanText(row[col[\'Guests\']])\n' +
 '    };\n' +
@@ -538,7 +539,7 @@ function notConnectedHTML(){
 function bookingCardHTML(b){
   return '<div class="booking-card" data-action="pick-booking" data-number="' + escapeHtml(b.bookingNumber) + '">' +
     '<div class="booking-card-top"><strong class="booking-guest">' + escapeHtml(b.guestName || 'Guest') + '</strong><span class="badge">#' + escapeHtml(b.bookingNumber) + '</span></div>' +
-    '<div class="booking-dates">Check-in: ' + fmtShort(b.checkIn) + (b.guests ? ' &middot; ' + escapeHtml(String(b.guests)) + ' guest' + (String(b.guests)==='1'?'':'s') : '') + '</div>' +
+    '<div class="booking-dates">' + fmtShort(b.checkIn) + (b.checkOut ? ' → ' + fmtShort(b.checkOut) : '') + (b.guests ? ' &middot; ' + escapeHtml(String(b.guests)) + ' guest' + (String(b.guests)==='1'?'':'s') : '') + '</div>' +
     (b.remarks ? '<div class="booking-meta">' + escapeHtml(b.remarks) + '</div>' : '') +
   '</div>';
 }
@@ -559,6 +560,7 @@ function renderBookingDetail(el){
       '<div class="detail-row"><span class="detail-label">Guest name</span><span class="detail-value">' + escapeHtml(b.guestName || '—') + '</span></div>' +
       '<div class="detail-row"><span class="detail-label">Booking number</span><span class="detail-value">#' + escapeHtml(b.bookingNumber) + '</span></div>' +
       '<div class="detail-row"><span class="detail-label">Check-in</span><span class="detail-value">' + fmtShort(b.checkIn) + '</span></div>' +
+      (b.checkOut ? '<div class="detail-row"><span class="detail-label">Check-out</span><span class="detail-value">' + fmtShort(b.checkOut) + '</span></div>' : '') +
       (b.guests ? '<div class="detail-row"><span class="detail-label">No. of guests</span><span class="detail-value">' + escapeHtml(String(b.guests)) + '</span></div>' : '') +
       (b.remarks ? '<div class="detail-row"><span class="detail-label">Remarks</span><span class="detail-value">' + escapeHtml(b.remarks) + '</span></div>' : '') +
       '<div class="field-group" style="margin-top:14px;margin-bottom:0;"><label class="field-label">Additional comments</label><textarea id="uploadComments" class="field-input" rows="3" placeholder="Optional note for this upload"></textarea></div>' +
