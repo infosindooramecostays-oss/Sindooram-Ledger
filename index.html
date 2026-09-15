@@ -484,6 +484,10 @@ details.card summary:hover{ color:var(--accent); }
         <input type="text" id="txnRecurrenceOther" class="field-input field-other-input" placeholder="e.g. Quarterly, Every 45 days" style="display:none;">
       </div>
       <div class="field-group">
+        <label class="field-label">Ends on <span class="field-optional">optional</span></label>
+        <input type="date" id="txnEndsOn" class="field-input">
+      </div>
+      <div class="field-group">
         <label class="field-label">Description <span class="field-optional">optional</span></label>
         <input type="text" id="txnDescription" class="field-input" placeholder="e.g. Pool cleaning">
       </div>
@@ -660,7 +664,7 @@ var APPS_SCRIPT_CODE =
 '  var ss = SpreadsheetApp.getActiveSpreadsheet();\n' +
 '  backfillMissingBookingIds(ss);\n' +
 '  return {\n' +
-'    transactions: readSheet(ss, \'Transactions\', [\'id\',\'type\',\'date\',\'category\',\'subcategory\',\'description\',\'amount\',\'addedBy\',\'recurrence\',\'createdAt\',\'updatedAt\']),\n' +
+'    transactions: readSheet(ss, \'Transactions\', [\'id\',\'type\',\'date\',\'category\',\'subcategory\',\'description\',\'amount\',\'addedBy\',\'recurrence\',\'createdAt\',\'updatedAt\',\'endsOn\']),\n' +
 '    bookings: readSheet(ss, \'Bookings\', [\'id\',\'bookingNumber\',\'guestName\',\'guestEmail\',\'guestPhone\',\'checkIn\',\'checkOut\',\'source\',\'amount\',\'status\',\'remarks\',\'addedBy\',\'createdAt\',\'updatedAt\',\'guests\'])\n' +
 '  };\n' +
 '}\n\n' +
@@ -730,14 +734,14 @@ var APPS_SCRIPT_CODE =
 'function writeTransactions(ss, transactions) {\n' +
 '  var sheet = ss.getSheetByName(\'Transactions\') || ss.insertSheet(\'Transactions\');\n' +
 '  sheet.clear();\n' +
-'  var headers = [\'ID\', \'Type\', \'Date\', \'Category\', \'Subcategory\', \'Description\', \'Amount\', \'Added By\', \'Recurrence\', \'Created At\', \'Updated At\'];\n' +
+'  var headers = [\'ID\', \'Type\', \'Date\', \'Category\', \'Subcategory\', \'Description\', \'Amount\', \'Added By\', \'Recurrence\', \'Created At\', \'Updated At\', \'Ends On\'];\n' +
 '  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);\n' +
 '  if (transactions.length > 0) {\n' +
 '    var rows = transactions.map(function (t) {\n' +
-'      return [t.id, t.type, forceText(t.date), t.category, t.subcategory || \'\', t.description || \'\', t.amount, t.addedBy, t.recurrence || \'One-off\', forceText(t.createdAt), forceText(t.updatedAt)];\n' +
+'      return [t.id, t.type, forceText(t.date), t.category, t.subcategory || \'\', t.description || \'\', t.amount, t.addedBy, t.recurrence || \'One-off\', forceText(t.createdAt), forceText(t.updatedAt), forceText(t.endsOn || \'\')];\n' +
 '    });\n' +
 '    sheet.getRange(2, 3, rows.length, 1).setNumberFormat(\'@\');\n' +
-'    sheet.getRange(2, 10, rows.length, 2).setNumberFormat(\'@\');\n' +
+'    sheet.getRange(2, 10, rows.length, 3).setNumberFormat(\'@\');\n' +
 '    SpreadsheetApp.flush();\n' +
 '    sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);\n' +
 '  }\n' +
@@ -920,14 +924,18 @@ function parseDateOnly(str){ return new Date(str + 'T00:00:00'); }
 // date) recurs within a period — lets a fixed expense entered once keep
 // counting in every later week/month/year without re-entering it. One-off
 // (or any custom, non-standard recurrence label) still counts only once,
-// on its own date.
-function countOccurrences(startDate, recurrence, rangeStart, rangeEnd){
+// on its own date. An optional endDate stops it recurring past that date
+// (the entry itself, and its history up to endDate, stays intact) without
+// having to delete the entry and lose its past occurrences.
+function countOccurrences(startDate, recurrence, rangeStart, rangeEnd, endDate){
   if(startDate > rangeEnd) return 0;
   if(recurrence !== 'Weekly' && recurrence !== 'Monthly' && recurrence !== 'Yearly'){
     return startDate >= rangeStart ? 1 : 0;
   }
+  var effectiveEnd = (endDate && endDate < rangeEnd) ? endDate : rangeEnd;
+  if(startDate > effectiveEnd) return 0;
   var count = 0, cursor = new Date(startDate), guard = 0;
-  while(cursor <= rangeEnd && guard < 2000){
+  while(cursor <= effectiveEnd && guard < 2000){
     if(cursor >= rangeStart) count++;
     cursor = recurrence === 'Weekly' ? addDays(cursor, 7) : addMonths(cursor, recurrence === 'Monthly' ? 1 : 12);
     guard++;
@@ -988,7 +996,8 @@ function computePeriodFinancials(range){
   var expenses = 0, byCat = {};
   state.transactions.forEach(function(t){
     if(t.type === 'income') return;
-    var occurrences = countOccurrences(parseDateOnly(t.date), t.recurrence, range.start, range.end);
+    var endDate = t.endsOn ? parseDateOnly(t.endsOn) : null;
+    var occurrences = countOccurrences(parseDateOnly(t.date), t.recurrence, range.start, range.end, endDate);
     if(occurrences === 0) return;
     var amt = (Number(t.amount) || 0) * occurrences;
     expenses += amt;
@@ -1512,7 +1521,7 @@ function renderSettings(){
 }
 
 /* ---------- Transaction modal ---------- */
-var txnModalOverlay, txnForm, txnId, txnDate, txnCategory, txnCategoryOther, txnSubcategory, txnSubcategoryOther, txnRecurrence, txnRecurrenceOther, txnDescription, txnAmount, txnAddedBy, txnDeleteBtn, txnModalTitle;
+var txnModalOverlay, txnForm, txnId, txnDate, txnCategory, txnCategoryOther, txnSubcategory, txnSubcategoryOther, txnRecurrence, txnRecurrenceOther, txnEndsOn, txnDescription, txnAmount, txnAddedBy, txnDeleteBtn, txnModalTitle;
 var ADD_NEW_VALUE = '__addnew__';
 // Income is no longer manually entered — it's derived from Bookings revenue
 // (see computePeriodFinancials). New transactions are always expenses; this
@@ -1650,6 +1659,7 @@ function openTxnModal(id){
   populateCategorySelect(type, t ? t.category : null);
   updateSubcategoryOptions(t ? (t.subcategory || '') : '');
   setComboValue(txnRecurrence, txnRecurrenceOther, t ? (t.recurrence || 'One-off') : 'One-off', getRecurrenceList(), false);
+  txnEndsOn.value = t ? (t.endsOn || '') : '';
   txnDate.value = t ? t.date : todayStr();
   txnDescription.value = t ? t.description : '';
   txnAmount.value = t ? t.amount : '';
@@ -1739,6 +1749,7 @@ function normalizeTransactions(list){
       amount: Number(t.amount) || 0,
       addedBy: t.addedBy || '',
       recurrence: t.recurrence || 'One-off',
+      endsOn: String(t.endsOn || '').slice(0,10),
       createdAt: t.createdAt || new Date().toISOString(),
       updatedAt: t.updatedAt || new Date().toISOString()
     };
@@ -1943,6 +1954,7 @@ function init(){
   txnSubcategoryOther = document.getElementById('txnSubcategoryOther');
   txnRecurrence = document.getElementById('txnRecurrence');
   txnRecurrenceOther = document.getElementById('txnRecurrenceOther');
+  txnEndsOn = document.getElementById('txnEndsOn');
   txnDescription = document.getElementById('txnDescription');
   txnAmount = document.getElementById('txnAmount');
   txnAddedBy = document.getElementById('txnAddedBy');
@@ -1995,6 +2007,7 @@ function init(){
       category: getComboValue(txnCategory, txnCategoryOther),
       subcategory: getComboValue(txnSubcategory, txnSubcategoryOther),
       recurrence: getComboValue(txnRecurrence, txnRecurrenceOther) || 'One-off',
+      endsOn: txnEndsOn.value || '',
       description: txnDescription.value.trim(),
       amount: parseFloat(txnAmount.value) || 0,
       addedBy: txnAddedBy.value.trim() || state.settings.userName || 'Unknown',

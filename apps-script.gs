@@ -22,7 +22,7 @@ function readAll() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   backfillMissingBookingIds(ss);
   return {
-    transactions: readSheet(ss, 'Transactions', ['id','type','date','category','subcategory','description','amount','addedBy','recurrence','createdAt','updatedAt']),
+    transactions: readSheet(ss, 'Transactions', ['id','type','date','category','subcategory','description','amount','addedBy','recurrence','createdAt','updatedAt','endsOn']),
     bookings: readSheet(ss, 'Bookings', ['id','bookingNumber','guestName','guestEmail','guestPhone','checkIn','checkOut','source','amount','status','remarks','addedBy','createdAt','updatedAt','guests'])
   };
 }
@@ -98,14 +98,14 @@ function forceText(value) {
 function writeTransactions(ss, transactions) {
   var sheet = ss.getSheetByName('Transactions') || ss.insertSheet('Transactions');
   sheet.clear();
-  var headers = ['ID', 'Type', 'Date', 'Category', 'Subcategory', 'Description', 'Amount', 'Added By', 'Recurrence', 'Created At', 'Updated At'];
+  var headers = ['ID', 'Type', 'Date', 'Category', 'Subcategory', 'Description', 'Amount', 'Added By', 'Recurrence', 'Created At', 'Updated At', 'Ends On'];
   sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
   if (transactions.length > 0) {
     var rows = transactions.map(function (t) {
-      return [t.id, t.type, forceText(t.date), t.category, t.subcategory || '', t.description || '', t.amount, t.addedBy, t.recurrence || 'One-off', forceText(t.createdAt), forceText(t.updatedAt)];
+      return [t.id, t.type, forceText(t.date), t.category, t.subcategory || '', t.description || '', t.amount, t.addedBy, t.recurrence || 'One-off', forceText(t.createdAt), forceText(t.updatedAt), forceText(t.endsOn || '')];
     });
     sheet.getRange(2, 3, rows.length, 1).setNumberFormat('@');
-    sheet.getRange(2, 10, rows.length, 2).setNumberFormat('@');
+    sheet.getRange(2, 10, rows.length, 3).setNumberFormat('@');
     SpreadsheetApp.flush();
     sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
   }
