@@ -157,6 +157,10 @@ function sendMonthlyReport() {
 
 // Totals income/expenses/bookings for transactions and bookings whose date
 // falls between start and end (inclusive).
+// TODO: unlike the app's own dashboard, this does NOT treat Weekly/Monthly/
+// Yearly transactions as recurring — a fixed expense entered once will only
+// show in the one month it was dated, not in every later month's email.
+// Deliberately left as-is for now; revisit if the email should match.
 function summarizePeriod(data, start, end) {
   var income = 0, expenses = 0, byCategory = {};
   data.transactions.forEach(function (t) {

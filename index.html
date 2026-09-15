@@ -785,6 +785,10 @@ var APPS_SCRIPT_CODE =
 '}\n\n' +
 '// Totals income/expenses/bookings for transactions and bookings whose date\n' +
 '// falls between start and end (inclusive).\n' +
+'// TODO: unlike the app\'s own dashboard, this does NOT treat Weekly/Monthly/\n' +
+'// Yearly transactions as recurring — a fixed expense entered once will only\n' +
+'// show in the one month it was dated, not in every later month\'s email.\n' +
+'// Deliberately left as-is for now; revisit if the email should match.\n' +
 'function summarizePeriod(data, start, end) {\n' +
 '  var income = 0, expenses = 0, byCategory = {};\n' +
 '  data.transactions.forEach(function (t) {\n' +
@@ -912,6 +916,24 @@ function addDays(d,n){ var x = new Date(d); x.setDate(x.getDate()+n); return x; 
 function addMonths(d,n){ var x = new Date(d); x.setMonth(x.getMonth()+n); return x; }
 function startOfWeek(d){ var x = startOfDay(d); var day = (x.getDay()+6)%7; return addDays(x,-day); }
 function parseDateOnly(str){ return new Date(str + 'T00:00:00'); }
+// How many times a Weekly/Monthly/Yearly entry (starting on its stored
+// date) recurs within a period — lets a fixed expense entered once keep
+// counting in every later week/month/year without re-entering it. One-off
+// (or any custom, non-standard recurrence label) still counts only once,
+// on its own date.
+function countOccurrences(startDate, recurrence, rangeStart, rangeEnd){
+  if(startDate > rangeEnd) return 0;
+  if(recurrence !== 'Weekly' && recurrence !== 'Monthly' && recurrence !== 'Yearly'){
+    return startDate >= rangeStart ? 1 : 0;
+  }
+  var count = 0, cursor = new Date(startDate), guard = 0;
+  while(cursor <= rangeEnd && guard < 2000){
+    if(cursor >= rangeStart) count++;
+    cursor = recurrence === 'Weekly' ? addDays(cursor, 7) : addMonths(cursor, recurrence === 'Monthly' ? 1 : 12);
+    guard++;
+  }
+  return count;
+}
 function todayStr(){ var d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
 function fmtShort(d){ return d.toLocaleDateString('en-IN', { day:'2-digit', month:'short' }); }
 function nightsBetween(a,b){ return Math.round((parseDateOnly(b) - parseDateOnly(a)) / 86400000); }
@@ -964,9 +986,11 @@ function filterInRange(list, range, field){
 // stat totals).
 function computePeriodFinancials(range){
   var expenses = 0, byCat = {};
-  filterInRange(state.transactions, range).forEach(function(t){
+  state.transactions.forEach(function(t){
     if(t.type === 'income') return;
-    var amt = Number(t.amount) || 0;
+    var occurrences = countOccurrences(parseDateOnly(t.date), t.recurrence, range.start, range.end);
+    if(occurrences === 0) return;
+    var amt = (Number(t.amount) || 0) * occurrences;
     expenses += amt;
     byCat[t.category] = (byCat[t.category] || 0) + amt;
   });
