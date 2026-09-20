@@ -155,6 +155,11 @@ function sendMonthlyReport() {
   });
 }
 
+// Categories that reduce Net — matches the app's own NET_REVENUE_CATEGORIES.
+// Maintenance, Property Upgrades, and Digital Promotions still count toward
+// `expenses`/byCategory (for audit) but aren't subtracted from net.
+var NET_REVENUE_CATEGORIES = ['Operational Expenses'];
+
 // Totals income/expenses/bookings for transactions and bookings whose date
 // falls between start and end (inclusive).
 // TODO: unlike the app's own dashboard, this does NOT treat Weekly/Monthly/
@@ -162,13 +167,17 @@ function sendMonthlyReport() {
 // show in the one month it was dated, not in every later month's email.
 // Deliberately left as-is for now; revisit if the email should match.
 function summarizePeriod(data, start, end) {
-  var income = 0, expenses = 0, byCategory = {};
+  var income = 0, expenses = 0, netExpenses = 0, byCategory = {};
   data.transactions.forEach(function (t) {
     var d = new Date(t.date + 'T00:00:00');
     if (d < start || d > end) return;
     var amt = Number(t.amount) || 0;
     if (t.type === 'income') { income += amt; }
-    else { expenses += amt; byCategory[t.category] = (byCategory[t.category] || 0) + amt; }
+    else {
+      expenses += amt;
+      byCategory[t.category] = (byCategory[t.category] || 0) + amt;
+      if (NET_REVENUE_CATEGORIES.indexOf(t.category) !== -1) netExpenses += amt;
+    }
   });
   var bookingsCount = 0, nights = 0, bookingsRevenue = 0;
   data.bookings.forEach(function (b) {
@@ -178,7 +187,7 @@ function summarizePeriod(data, start, end) {
     bookingsRevenue += Number(b.amount) || 0;
     nights += Math.round((new Date(b.checkOut + 'T00:00:00') - d) / 86400000);
   });
-  return { income: income, expenses: expenses, net: income - expenses, byCategory: byCategory, bookingsCount: bookingsCount, nights: nights, bookingsRevenue: bookingsRevenue };
+  return { income: income, expenses: expenses, net: income - netExpenses, byCategory: byCategory, bookingsCount: bookingsCount, nights: nights, bookingsRevenue: bookingsRevenue };
 }
 
 function formatMoney(n) {

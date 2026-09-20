@@ -609,11 +609,11 @@ details.card summary:hover{ color:var(--accent); }
 
 /* ---------- Constants ---------- */
 var LS_KEYS = { settings:'sr_settings_v1', cache:'sr_cache_v1' };
-var EXPENSE_CATEGORIES = ['Fixed Expenses','Maintenance','Property Upgrades','Digital Promotions'];
+var EXPENSE_CATEGORIES = ['Operational Expenses','Maintenance','Property Upgrades','Digital Promotions'];
 var INCOME_CATEGORIES = ['Booking Revenue','Other Income'];
 var BOOKING_SOURCES = ['Direct','Airbnb','Booking.com','MakeMyTrip','Other'];
 var SUBCATEGORY_PRESETS = {
-  'Fixed Expenses': ['Manager Salary','Caretaker Salary','Staff Salary','Electricity Bill','Water Bill','Internet Bill','Property Tax','Insurance','Society/HOA Fees'],
+  'Operational Expenses': ['Manager Salary','Caretaker Salary','Staff Salary','Electricity Bill','Water Bill','Internet Bill','Property Tax','Insurance','Society/HOA Fees'],
   'Maintenance': ['Repairs','Pool Cleaning','Pest Control','Gardening','Housekeeping Supplies','Plumbing','Electrical Work'],
   'Property Upgrades': ['Furniture','Renovation','Appliances','Decor','Landscaping'],
   'Digital Promotions': ['Social Media Ads','Listing Fees','Website','Photography'],
@@ -624,7 +624,7 @@ var RECURRENCE_OPTIONS = ['One-off','Weekly','Monthly','Yearly'];
 var GRAN_LABELS = { daily:'Daily', weekly:'Weekly', monthly:'Monthly', ytd:'YTD' };
 var POLL_INTERVAL_MS = 25000;
 var CATEGORY_COLOR = {
-  'Fixed Expenses':'var(--series-1)',
+  'Operational Expenses':'var(--series-1)',
   'Maintenance':'var(--series-2)',
   'Property Upgrades':'var(--series-3)',
   'Digital Promotions':'var(--series-4)',
@@ -632,8 +632,13 @@ var CATEGORY_COLOR = {
   'Booking Revenue':'var(--series-6)',
   'Other Income':'var(--series-7)'
 };
+// Categories that reduce Net balance. Maintenance, Property Upgrades, and
+// Digital Promotions are still logged, still show in Total Expenses and
+// the category breakdown for audit purposes — they just aren't subtracted
+// from net revenue.
+var NET_REVENUE_CATEGORIES = ['Operational Expenses'];
 var CATEGORY_ICON_PATHS = {
-  'Fixed Expenses': '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>',
+  'Operational Expenses': '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>',
   'Maintenance': '<circle cx="7" cy="7" r="3"/><circle cx="17" cy="17" r="3"/><path d="M9.1 9.1l5.8 5.8"/>',
   'Property Upgrades': '<path d="M4 17l6-6 4 4 6-8"/><path d="M14 6h6v6"/>',
   'Digital Promotions': '<path d="M3 10v4h4l6 4V6l-6 4H3z"/><path d="M17 9a4 4 0 010 6"/>',
@@ -787,6 +792,10 @@ var APPS_SCRIPT_CODE =
 '    htmlBody: buildReportHtml(monthLabel, current, previous)\n' +
 '  });\n' +
 '}\n\n' +
+'// Categories that reduce Net — matches the app\'s own NET_REVENUE_CATEGORIES.\n' +
+'// Maintenance, Property Upgrades, and Digital Promotions still count toward\n' +
+'// `expenses`/byCategory (for audit) but aren\'t subtracted from net.\n' +
+'var NET_REVENUE_CATEGORIES = [\'Operational Expenses\'];\n\n' +
 '// Totals income/expenses/bookings for transactions and bookings whose date\n' +
 '// falls between start and end (inclusive).\n' +
 '// TODO: unlike the app\'s own dashboard, this does NOT treat Weekly/Monthly/\n' +
@@ -794,13 +803,17 @@ var APPS_SCRIPT_CODE =
 '// show in the one month it was dated, not in every later month\'s email.\n' +
 '// Deliberately left as-is for now; revisit if the email should match.\n' +
 'function summarizePeriod(data, start, end) {\n' +
-'  var income = 0, expenses = 0, byCategory = {};\n' +
+'  var income = 0, expenses = 0, netExpenses = 0, byCategory = {};\n' +
 '  data.transactions.forEach(function (t) {\n' +
 '    var d = new Date(t.date + \'T00:00:00\');\n' +
 '    if (d < start || d > end) return;\n' +
 '    var amt = Number(t.amount) || 0;\n' +
 '    if (t.type === \'income\') { income += amt; }\n' +
-'    else { expenses += amt; byCategory[t.category] = (byCategory[t.category] || 0) + amt; }\n' +
+'    else {\n' +
+'      expenses += amt;\n' +
+'      byCategory[t.category] = (byCategory[t.category] || 0) + amt;\n' +
+'      if (NET_REVENUE_CATEGORIES.indexOf(t.category) !== -1) netExpenses += amt;\n' +
+'    }\n' +
 '  });\n' +
 '  var bookingsCount = 0, nights = 0, bookingsRevenue = 0;\n' +
 '  data.bookings.forEach(function (b) {\n' +
@@ -810,7 +823,7 @@ var APPS_SCRIPT_CODE =
 '    bookingsRevenue += Number(b.amount) || 0;\n' +
 '    nights += Math.round((new Date(b.checkOut + \'T00:00:00\') - d) / 86400000);\n' +
 '  });\n' +
-'  return { income: income, expenses: expenses, net: income - expenses, byCategory: byCategory, bookingsCount: bookingsCount, nights: nights, bookingsRevenue: bookingsRevenue };\n' +
+'  return { income: income, expenses: expenses, net: income - netExpenses, byCategory: byCategory, bookingsCount: bookingsCount, nights: nights, bookingsRevenue: bookingsRevenue };\n' +
 '}\n\n' +
 'function formatMoney(n) {\n' +
 '  return \'₹\' + Math.round(n).toLocaleString(\'en-IN\');\n' +
@@ -993,7 +1006,7 @@ function filterInRange(list, range, field){
 // not counted here; they still show in the transaction list, just not the
 // stat totals).
 function computePeriodFinancials(range){
-  var expenses = 0, byCat = {};
+  var expenses = 0, netExpenses = 0, byCat = {};
   state.transactions.forEach(function(t){
     if(t.type === 'income') return;
     var endDate = t.endsOn ? parseDateOnly(t.endsOn) : null;
@@ -1002,13 +1015,14 @@ function computePeriodFinancials(range){
     var amt = (Number(t.amount) || 0) * occurrences;
     expenses += amt;
     byCat[t.category] = (byCat[t.category] || 0) + amt;
+    if(NET_REVENUE_CATEGORIES.indexOf(t.category) !== -1) netExpenses += amt;
   });
   var income = 0;
   state.bookings.forEach(function(b){
     var d = parseDateOnly(b.checkIn);
     if(d >= range.start && d <= range.end) income += Number(b.amount) || 0;
   });
-  return { income:income, expenses:expenses, net:income-expenses, byCat:byCat };
+  return { income:income, expenses:expenses, net:income-netExpenses, byCat:byCat };
 }
 function computeTrendBuckets(gran, count){
   var earliest = null;
@@ -1177,7 +1191,7 @@ var TOUR_STEPS = [
   // Opens the Add Transaction form (modal:'txn') to walk through its fields.
   { tab:'dashboard', modal:'txn', selector:'#txnModalOverlay .amount-field', title:'Enter the amount', body:'How much the expense cost.' },
   { tab:'dashboard', modal:'txn', selector:'#txnCategoryGroup', title:'Category', body:'Pick one, or choose "+ Add new…" to create your own — it saves for everyone.' },
-  { tab:'dashboard', modal:'txn', selector:'#txnSubcategoryGroup', title:'Sub-category (optional)', body:'Extra detail like "Electricity Bill" under Fixed Expenses. Also supports "+ Add new…".' },
+  { tab:'dashboard', modal:'txn', selector:'#txnSubcategoryGroup', title:'Sub-category (optional)', body:'Extra detail like "Electricity Bill" under Operational Expenses. Also supports "+ Add new…".' },
   { tab:'dashboard', modal:'txn', selector:'#txnRecurrenceGroup', title:'Mark it as recurring', body:'Tag repeating costs like salaries or bills — it\'s just a label, nothing gets created automatically.' },
   { tab:'dashboard', modal:'txn', selector:'#txnModalOverlay .modal-footer', title:'Save it', body:'Saves straight to the shared Google Sheet — everyone connected sees it within moments.' },
   // Bookings, then its + button (same button, different behaviour here).
