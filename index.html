@@ -1420,7 +1420,7 @@ function renderDashboard(){
     '<div class="period-nav" id="periodNav">' +
       '<button class="icon-btn" data-action="period-prev" aria-label="Previous">‹</button>' +
       '<div class="period-label"><strong>' + range.label + '</strong>' + (range.sub ? '<span>' + range.sub + '</span>' : '') + '</div>' +
-      '<button class="icon-btn" data-action="period-next" ' + (dashOffset>=0?'disabled':'') + ' aria-label="Next">›</button>' +
+      '<button class="icon-btn" data-action="period-next" aria-label="Next">›</button>' +
     '</div>' +
     heroHTML +
     '<div class="stat-grid">' + tiles + '</div>' +
@@ -1929,7 +1929,7 @@ document.addEventListener('click', function(e){
     case 'switch-tab': switchTab(el.dataset.tab); break;
     case 'set-gran': dashGran = el.dataset.gran; dashOffset = 0; renderDashboard(); break;
     case 'period-prev': dashOffset -= 1; renderDashboard(); break;
-    case 'period-next': if(dashOffset < 0){ dashOffset += 1; renderDashboard(); } break;
+    case 'period-next': dashOffset += 1; renderDashboard(); break;
     case 'edit-txn': openTxnModal(el.dataset.id); break;
     case 'close-txn-modal': hideModal(txnModalOverlay); break;
     case 'delete-txn-from-modal': if(txnId.value){ deleteTxn(txnId.value); hideModal(txnModalOverlay); } break;
