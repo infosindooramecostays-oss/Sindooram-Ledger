@@ -2340,6 +2340,13 @@ function receiptEligible(){
 function updateReceiptSectionVisibility(){
   receiptSection.style.display = (receiptEligible() && bookingIdInput.value) ? 'block' : 'none';
 }
+function onBookingStatusChange(){
+  var status = getComboValue(bookingStatusSel, bookingStatusOther);
+  if((status === 'Confirmed-Advance' || status === 'Confirmed-Paid') && !bookingNumberInput.value.trim()){
+    bookingNumberInput.value = nextBookingNumber();
+  }
+  updateReceiptSectionVisibility();
+}
 function defaultReceiptAmount(){
   var status = getComboValue(bookingStatusSel, bookingStatusOther);
   var total = parseFloat(bookingAmountInput.value) || 0;
@@ -2483,7 +2490,7 @@ function init(){
   bookingModalTitle = document.getElementById('bookingModalTitle');
 
   bookingSourceSel.innerHTML = BOOKING_SOURCES.map(function(s){ return '<option value="'+escapeHtml(s)+'">'+escapeHtml(s)+'</option>'; }).join('');
-  wireCombo(bookingStatusSel, bookingStatusOther, updateReceiptSectionVisibility);
+  wireCombo(bookingStatusSel, bookingStatusOther, onBookingStatusChange);
 
   receiptSection = document.getElementById('receiptSection');
   receiptAmountReceived = document.getElementById('receiptAmountReceived');
