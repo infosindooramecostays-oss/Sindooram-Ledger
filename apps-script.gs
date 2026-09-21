@@ -11,6 +11,14 @@ function doPost(e) {
     sendMonthlyReport();
     return jsonResponse({ status: 'sent' });
   }
+  if (data.action === 'previewReceipt') {
+    try { return jsonResponse(handlePreviewReceipt(data)); }
+    catch (err) { return jsonResponse({ error: String(err.message || err) }); }
+  }
+  if (data.action === 'sendReceipt') {
+    try { return jsonResponse(handleSendReceipt(data)); }
+    catch (err) { return jsonResponse({ error: String(err.message || err) }); }
+  }
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   writeTransactions(ss, data.transactions || []);
   writeBookings(ss, data.bookings || []);
@@ -247,4 +255,318 @@ function createMonthlyReportTrigger() {
     if (t.getHandlerFunction() === 'sendMonthlyReport') ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('sendMonthlyReport').timeBased().onMonthDay(1).atHour(7).create();
+}
+
+// ===== Payment receipts (Confirmed-Advance / Confirmed-Paid, Direct bookings only) =====
+
+var LOGO_URL = 'https://infosindooramecostays-oss.github.io/Sindooram-Ledger/assets/brand/sindooram-logo.jpeg';
+var RECEIPTS_FOLDER_NAME = 'Sindooram Receipts';
+
+function getOrCreateFolder(parent, name) {
+  var existing = parent.getFoldersByName(name);
+  if (existing.hasNext()) return existing.next();
+  return parent.createFolder(name);
+}
+
+// The two receipt "stages" only differ in this copy. Amount Received/Total
+// Amount/dates are filled in by the caller either way.
+function getReceiptContent(input) {
+  if (input.stage === 'paid') {
+    return {
+      statusLine: 'Your booking is confirmed and complete.',
+      balanceLines: ['- Full payment received.', 'Booking confirmed and complete — no balance due.'],
+      nonRefundable: 'All payments received are non-refundable.'
+    };
+  }
+  var remaining = Math.max(0, Number(input.totalAmount) - Number(input.amountReceived));
+  var dueDate = new Date(input.checkIn + 'T00:00:00');
+  dueDate.setDate(dueDate.getDate() - 1);
+  var dueDateStr = Utilities.formatDate(dueDate, Session.getScriptTimeZone(), 'd MMM yyyy');
+  return {
+    statusLine: 'Your booking has been confirmed, pending the remaining balance.',
+    balanceLines: ['- Booking confirmed, balance of Rs ' + formatMoney(remaining) + ',', 'due one day before check-in, i.e. ' + dueDateStr + '.'],
+    nonRefundable: 'Advance payment is non-refundable.'
+  };
+}
+
+// Sets bold/color/size on a paragraph's text without relying on Paragraph
+// having its own style setters — editAsText() always works.
+function styleParaText(paragraph, opts) {
+  var t = paragraph.editAsText();
+  if (opts.bold) t.setBold(true);
+  if (opts.color) t.setForegroundColor(opts.color);
+  if (opts.size) t.setFontSize(opts.size);
+}
+
+// A borderless 2-column [label, value] row, value cell highlighted — the
+// same "fill-in line" look as the paper template.
+function appendFieldRow(body, label, value) {
+  var row = body.appendTable([[label, String(value || '')]]);
+  row.setBorderWidth(0);
+  row.getCell(0, 0).setWidth(150);
+  styleParaText(row.getCell(0, 0).getChild(0).asParagraph(), { bold: true, size: 10 });
+  var valueCell = row.getCell(0, 1);
+  valueCell.setBackgroundColor('#FBD3C5');
+  valueCell.setPaddingTop(5).setPaddingBottom(5).setPaddingLeft(8);
+  styleParaText(valueCell.getChild(0).asParagraph(), { bold: true, size: 10 });
+  return row;
+}
+
+// Builds the payment receipt as a temporary Google Doc, exports it as a PDF
+// blob, then trashes the Doc — only the PDF bytes are kept/returned. `input`
+// needs: bookingNumber, guestName, checkIn, checkOut, guests, totalAmount,
+// amountReceived, receivedDate, rateIncludes, stage ('advance' or 'paid').
+function buildReceiptPdf(input) {
+  var content = getReceiptContent(input);
+  var doc = DocumentApp.create('Receipt - ' + input.bookingNumber + ' - ' + input.stage + ' - TEMP');
+  var docId = doc.getId();
+  var body = doc.getBody();
+  body.setMarginTop(30).setMarginBottom(30).setMarginLeft(40).setMarginRight(40);
+
+  // Letterhead: logo left, business info right.
+  var head = body.appendTable([['', '']]);
+  head.setBorderWidth(0);
+  var logoCell = head.getCell(0, 0);
+  logoCell.clear();
+  try {
+    var logoBlob = UrlFetchApp.fetch(LOGO_URL).getBlob();
+    var blankPara = logoCell.getChild(0).asParagraph();
+    var img = logoCell.appendImage(logoBlob);
+    blankPara.removeFromParent();
+    var ratio = img.getHeight() / img.getWidth();
+    img.setWidth(150);
+    img.setHeight(Math.round(150 * ratio));
+  } catch (imgErr) {
+    var logoFallback = logoCell.getChild(0).asParagraph();
+    logoFallback.setText('Sindooram Ecostay');
+    styleParaText(logoFallback, { bold: true });
+  }
+  var infoCell = head.getCell(0, 1);
+  infoCell.clear();
+  var infoP1 = infoCell.getChild(0).asParagraph();
+  infoP1.setText('Sindooram Ecostay');
+  infoP1.setAlignment(DocumentApp.HorizontalAlignment.RIGHT);
+  styleParaText(infoP1, { bold: true, size: 10 });
+  var infoP2 = infoCell.appendParagraph('Opposite Thakadi Temple, Edava, Varkala, Kerala 695311');
+  infoP2.setAlignment(DocumentApp.HorizontalAlignment.RIGHT);
+  styleParaText(infoP2, { size: 9 });
+  var infoP3 = infoCell.appendParagraph('+91 98460 22350  |  sindooramecostays.com');
+  infoP3.setAlignment(DocumentApp.HorizontalAlignment.RIGHT);
+  styleParaText(infoP3, { size: 9 });
+
+  body.appendParagraph('');
+
+  // Banner.
+  var bannerTable = body.appendTable([['PAYMENT RECEIPT']]);
+  bannerTable.setBorderWidth(0);
+  var bannerCell = bannerTable.getCell(0, 0);
+  bannerCell.setBackgroundColor('#2F4739');
+  bannerCell.setPaddingTop(10).setPaddingBottom(10);
+  var bannerP = bannerCell.getChild(0).asParagraph();
+  bannerP.setAlignment(DocumentApp.HorizontalAlignment.CENTER);
+  styleParaText(bannerP, { bold: true, color: '#FFFFFF', size: 15 });
+
+  body.appendParagraph('');
+  styleParaText(body.appendParagraph('Greetings from Sindooram Ecostay!'), { bold: true, size: 11 });
+  body.appendParagraph('');
+
+  appendFieldRow(body, 'Booking Number:', input.bookingNumber);
+  appendFieldRow(body, 'Received From:', input.guestName);
+  appendFieldRow(body, 'Amount Received:', formatMoney(input.amountReceived));
+  appendFieldRow(body, 'Total Booking Amount:', formatMoney(input.totalAmount));
+  appendFieldRow(body, 'Received Date:', input.receivedDate);
+
+  body.appendParagraph('');
+  styleParaText(body.appendParagraph(content.statusLine), { bold: true, color: '#8F4128', size: 11 });
+
+  body.appendParagraph('');
+  body.appendHorizontalRule();
+  body.appendParagraph('');
+
+  styleParaText(body.appendParagraph('Booking Details'), { bold: true, color: '#8F4128', size: 12 });
+  appendFieldRow(body, 'Check-in', input.checkIn);
+  appendFieldRow(body, 'Check-out', input.checkOut);
+  appendFieldRow(body, 'Guests', String(input.guests || ''));
+  appendFieldRow(body, 'Rate includes', input.rateIncludes || '');
+
+  body.appendParagraph('');
+  styleParaText(body.appendParagraph('Payment Terms & Conditions'), { bold: true, color: '#8F4128', size: 12 });
+
+  var balanceTable = body.appendTable([['']]);
+  balanceTable.setBorderWidth(0);
+  var balanceCell = balanceTable.getCell(0, 0);
+  balanceCell.setBackgroundColor('#FBD3C5');
+  balanceCell.setPaddingTop(8).setPaddingBottom(8).setPaddingLeft(10).setPaddingRight(10);
+  content.balanceLines.forEach(function (line, i) {
+    var p = i === 0 ? balanceCell.getChild(0).asParagraph() : balanceCell.appendParagraph('');
+    p.setText(line);
+  });
+
+  var bullet = body.appendListItem('Early check-in is subject to availability');
+  bullet.setGlyphType(DocumentApp.GlyphType.BULLET);
+  styleParaText(body.appendParagraph(content.nonRefundable), { bold: true });
+
+  body.appendParagraph('');
+  styleParaText(body.appendParagraph('If you have any questions before your stay, feel free to reach out to us directly on WhatsApp: +91 98460 22350.'), { size: 10 });
+  styleParaText(body.appendParagraph('Feel free to check out our website for things to do nearby and more to help you plan your stay: sindooramecostays.com.'), { size: 10 });
+  body.appendParagraph('');
+  styleParaText(body.appendParagraph('Looking forward to welcoming you all soon!'), { size: 10 });
+  styleParaText(body.appendParagraph('Regards,'), { size: 10 });
+  styleParaText(body.appendParagraph('Team Sindooram'), { bold: true, size: 10 });
+
+  doc.saveAndClose();
+  var pdfBlob = DriveApp.getFileById(docId).getAs('application/pdf');
+  pdfBlob.setName('Receipt-' + input.bookingNumber + '-' + input.stage + '.pdf');
+  DriveApp.getFileById(docId).setTrashed(true);
+  return pdfBlob;
+}
+
+// Turns a doPost payload into everything buildReceiptPdf/receiptEmailContent
+// need, pulling the booking's stored fields and layering the caller-supplied
+// amount/date/rate-includes on top (those three aren't tracked on the
+// booking itself — they're specific to this one receipt).
+function findBookingInput(data) {
+  var all = readAll();
+  var booking = all.bookings.filter(function (b) { return b.id === data.bookingId; })[0];
+  if (!booking) throw new Error('Booking not found — try saving the booking again first.');
+  var stage = booking.status === 'Confirmed-Paid' ? 'paid' : 'advance';
+  return {
+    bookingId: booking.id,
+    bookingNumber: booking.bookingNumber,
+    guestName: booking.guestName,
+    guestEmail: booking.guestEmail,
+    checkIn: booking.checkIn,
+    checkOut: booking.checkOut,
+    guests: booking.guests,
+    totalAmount: Number(booking.amount) || 0,
+    amountReceived: Number(data.amountReceived) || 0,
+    receivedDate: Utilities.formatDate(data.receivedDate ? new Date(data.receivedDate + 'T00:00:00') : new Date(), Session.getScriptTimeZone(), 'd MMM yyyy'),
+    rateIncludes: data.rateIncludes || '',
+    stage: stage
+  };
+}
+
+function receiptEmailContent(input) {
+  var stagePretty = input.stage === 'paid' ? 'Payment Received in Full' : 'Advance Payment Received';
+  var content = getReceiptContent(input);
+  var bodyText = 'Hi ' + input.guestName + ',\n\n' +
+    'Thank you! Please find attached your payment receipt for booking ' + input.bookingNumber + ' at Sindooram Ecostay.\n\n' +
+    content.statusLine + '\n\n' +
+    'Check-in: ' + input.checkIn + '\nCheck-out: ' + input.checkOut + '\n\n' +
+    'If you have any questions before your stay, reach us on WhatsApp: +91 98460 22350.\n\n' +
+    'Looking forward to welcoming you all soon!\n\nRegards,\nTeam Sindooram';
+  return { subject: 'Payment Receipt — Booking ' + input.bookingNumber + ' (' + stagePretty + ')', bodyText: bodyText };
+}
+
+// doPost action 'previewReceipt' — builds the PDF and email text but sends
+// nothing; the app shows this to the manager first.
+function handlePreviewReceipt(data) {
+  var input = findBookingInput(data);
+  var pdfBlob = buildReceiptPdf(input);
+  var email = receiptEmailContent(input);
+  return {
+    pdfBase64: Utilities.base64Encode(pdfBlob.getBytes()),
+    fileName: pdfBlob.getName(),
+    subject: email.subject,
+    bodyText: email.bodyText,
+    toEmail: input.guestEmail
+  };
+}
+
+// doPost action 'sendReceipt' — rebuilds the same PDF (from the same inputs
+// the app just showed in Preview), actually emails it, saves a copy to
+// Drive, and logs it to the Receipts sheet tab for audit/reminder lookups.
+function handleSendReceipt(data) {
+  var input = findBookingInput(data);
+  if (!input.guestEmail) throw new Error('This booking has no Guest Email — add one before sending a receipt.');
+  var pdfBlob = buildReceiptPdf(input);
+  var email = receiptEmailContent(input);
+  MailApp.sendEmail({ to: input.guestEmail, subject: email.subject, body: email.bodyText, attachments: [pdfBlob] });
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var folder = getOrCreateFolder(DriveApp.getRootFolder(), RECEIPTS_FOLDER_NAME);
+  var savedFile = folder.createFile(pdfBlob);
+  logReceipt(ss, input, savedFile.getUrl());
+  return { status: 'sent' };
+}
+
+function logReceipt(ss, input, fileUrl) {
+  var sheet = ss.getSheetByName('Receipts') || ss.insertSheet('Receipts');
+  if (sheet.getLastRow() === 0) {
+    var headers = ['ID', 'Booking ID', 'Booking Number', 'Guest Name', 'Guest Email', 'Stage', 'Amount Received', 'Total Amount', 'Received Date', 'Rate Includes', 'Check-in', 'Check-out', 'Guests', 'Sent At', 'PDF Link'];
+    sheet.appendRow(headers);
+    sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+  }
+  var id = 'rc_' + new Date().getTime().toString(36) + Math.random().toString(36).slice(2, 7);
+  sheet.appendRow([id, input.bookingId, input.bookingNumber, input.guestName, input.guestEmail, input.stage, input.amountReceived, input.totalAmount, input.receivedDate, input.rateIncludes, input.checkIn, input.checkOut, input.guests, new Date(), fileUrl]);
+  sheet.autoResizeColumns(1, 15);
+}
+
+function latestReceiptForBooking(ss, bookingId, stage) {
+  var sheet = ss.getSheetByName('Receipts');
+  if (!sheet) return null;
+  var values = sheet.getDataRange().getValues();
+  if (values.length < 2) return null;
+  var headers = values[0];
+  var col = {};
+  headers.forEach(function (h, i) { col[h] = i; });
+  var matches = values.slice(1).filter(function (row) {
+    return row[col['Booking ID']] === bookingId && row[col['Stage']] === stage;
+  });
+  if (!matches.length) return null;
+  var last = matches[matches.length - 1];
+  return { amountReceived: last[col['Amount Received']] };
+}
+
+// Daily reminder for Direct bookings still on Confirmed-Advance (balance
+// outstanding) whose check-in is tomorrow. Plain text, no attachment.
+// Skips anything already Confirmed-Paid — nothing owed, nothing to remind.
+function sendPaymentReminders() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var data = readAll();
+  var tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  var tomorrowStr = Utilities.formatDate(tomorrow, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  data.bookings.forEach(function (b) {
+    if (b.source !== 'Direct') return;
+    if (b.status !== 'Confirmed-Advance') return;
+    if (String(b.checkIn).slice(0, 10) !== tomorrowStr) return;
+    if (!b.guestEmail) return;
+    var receipt = latestReceiptForBooking(ss, b.id, 'advance');
+    var amountReceived = receipt ? Number(receipt.amountReceived) : (Number(b.amount) || 0) / 2;
+    var remaining = Math.max(0, (Number(b.amount) || 0) - amountReceived);
+    var checkInLabel = Utilities.formatDate(new Date(b.checkIn + 'T00:00:00'), Session.getScriptTimeZone(), 'd MMM yyyy');
+    var dueDateStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'd MMM yyyy');
+    var body = 'Hi ' + b.guestName + ',\n\n' +
+      'Just a friendly reminder — your stay at Sindooram Ecostay (Booking ' + b.bookingNumber + ') checks in tomorrow, ' + checkInLabel + '.\n\n' +
+      'The remaining balance of ' + formatMoney(remaining) + ' is due by ' + dueDateStr + ' (one day before check-in).\n\n' +
+      'If you have already paid this, please disregard this message. For any questions, reach us on WhatsApp: +91 98460 22350.\n\n' +
+      'Looking forward to welcoming you!\n\nRegards,\nTeam Sindooram';
+    MailApp.sendEmail({ to: b.guestEmail, subject: 'Reminder: Balance due for your upcoming stay — ' + b.bookingNumber, body: body });
+  });
+}
+
+// Run this once yourself (select it above, then click Run) to schedule
+// sendPaymentReminders() daily at 9am. Re-running it is safe — it clears
+// any previous schedule for this function first.
+function createReminderTrigger() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'sendPaymentReminders') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('sendPaymentReminders').timeBased().everyDays(1).atHour(9).create();
+}
+
+// Run this once yourself to sanity-check receipt generation without sending
+// a real email — saves a sample PDF to your Drive root so you can check it
+// looks right before relying on it for real guests.
+function testBuildReceiptPdf() {
+  var input = {
+    bookingId: 'test', bookingNumber: 'SE-2026-TEST', guestName: 'Test Guest',
+    guestEmail: '', checkIn: '2026-09-30', checkOut: '2026-10-04', guests: 7,
+    totalAmount: 20574, amountReceived: 10287,
+    receivedDate: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'd MMM yyyy'),
+    rateIncludes: 'Breakfast from our set menu', stage: 'advance'
+  };
+  var pdfBlob = buildReceiptPdf(input);
+  DriveApp.getRootFolder().createFile(pdfBlob);
+  Logger.log('Saved test receipt to your Drive root: ' + pdfBlob.getName());
 }
