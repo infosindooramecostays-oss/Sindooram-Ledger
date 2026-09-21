@@ -266,6 +266,7 @@ var LOGO_URL = 'https://infosindooramecostays-oss.github.io/Sindooram-Ledger/ass
 // isn't there.
 var RECEIPTS_FOLDER_ID = '1bMOGMDEEn9aaP5p_Z1wBbsoUNdMEOkrg';
 var RECEIPT_FONT = 'Arial';
+var RECEIPT_FILL_COLOR = '#F1E9DA';
 
 function getOrCreateFolder(parent, name) {
   var existing = parent.getFoldersByName(name);
@@ -279,7 +280,7 @@ function getReceiptContent(input) {
   if (input.stage === 'paid') {
     return {
       statusLine: 'Your booking is confirmed and complete.',
-      balanceLines: ['- Full payment received.', 'Booking confirmed and complete — no balance due.'],
+      balanceLines: ['Full payment received.', 'Booking confirmed and complete — no balance due.'],
       nonRefundable: 'All payments received are non-refundable.'
     };
   }
@@ -289,7 +290,7 @@ function getReceiptContent(input) {
   var dueDateStr = Utilities.formatDate(dueDate, Session.getScriptTimeZone(), 'd MMM yyyy');
   return {
     statusLine: 'Your booking has been confirmed, pending the remaining balance.',
-    balanceLines: ['- Booking confirmed, balance of Rs ' + formatMoney(remaining) + ',', 'due one day before check-in, i.e. ' + dueDateStr + '.'],
+    balanceLines: ['Booking confirmed, balance of ' + formatMoney(remaining) + ',', 'Due one day before check-in, i.e. ' + dueDateStr + '.'],
     nonRefundable: 'Advance payment is non-refundable.'
   };
 }
@@ -312,7 +313,7 @@ function appendFieldRow(body, label, value) {
   row.getCell(0, 0).setWidth(150);
   styleParaText(row.getCell(0, 0).getChild(0).asParagraph(), { bold: true, size: 10 });
   var valueCell = row.getCell(0, 1);
-  valueCell.setBackgroundColor('#FBD3C5');
+  valueCell.setBackgroundColor(RECEIPT_FILL_COLOR);
   valueCell.setPaddingTop(5).setPaddingBottom(5).setPaddingLeft(8);
   styleParaText(valueCell.getChild(0).asParagraph(), { bold: true, size: 10 });
   return row;
@@ -402,12 +403,13 @@ function buildReceiptPdf(input) {
   var balanceTable = body.appendTable([['']]);
   balanceTable.setBorderWidth(0);
   var balanceCell = balanceTable.getCell(0, 0);
-  balanceCell.setBackgroundColor('#FBD3C5');
+  balanceCell.setBackgroundColor(RECEIPT_FILL_COLOR);
   balanceCell.setPaddingTop(8).setPaddingBottom(8).setPaddingLeft(10).setPaddingRight(10);
-  content.balanceLines.forEach(function (line, i) {
-    var p = i === 0 ? balanceCell.getChild(0).asParagraph() : balanceCell.appendParagraph('');
-    p.setText(line);
-    styleParaText(p, { size: 10 });
+  balanceCell.getChild(0).asParagraph().removeFromParent();
+  content.balanceLines.forEach(function (line) {
+    var li = balanceCell.appendListItem(line);
+    li.setGlyphType(DocumentApp.GlyphType.BULLET);
+    styleParaText(li, { size: 10 });
   });
 
   var bullet = body.appendListItem('Early check-in is subject to availability');

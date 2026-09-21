@@ -963,6 +963,7 @@ var APPS_SCRIPT_CODE =
 '// isn\'t there.\n' +
 'var RECEIPTS_FOLDER_ID = \'1bMOGMDEEn9aaP5p_Z1wBbsoUNdMEOkrg\';\n' +
 'var RECEIPT_FONT = \'Arial\';\n' +
+'var RECEIPT_FILL_COLOR = \'#F1E9DA\';\n' +
 '\n' +
 'function getOrCreateFolder(parent, name) {\n' +
 '  var existing = parent.getFoldersByName(name);\n' +
@@ -976,7 +977,7 @@ var APPS_SCRIPT_CODE =
 '  if (input.stage === \'paid\') {\n' +
 '    return {\n' +
 '      statusLine: \'Your booking is confirmed and complete.\',\n' +
-'      balanceLines: [\'- Full payment received.\', \'Booking confirmed and complete — no balance due.\'],\n' +
+'      balanceLines: [\'Full payment received.\', \'Booking confirmed and complete — no balance due.\'],\n' +
 '      nonRefundable: \'All payments received are non-refundable.\'\n' +
 '    };\n' +
 '  }\n' +
@@ -986,7 +987,7 @@ var APPS_SCRIPT_CODE =
 '  var dueDateStr = Utilities.formatDate(dueDate, Session.getScriptTimeZone(), \'d MMM yyyy\');\n' +
 '  return {\n' +
 '    statusLine: \'Your booking has been confirmed, pending the remaining balance.\',\n' +
-'    balanceLines: [\'- Booking confirmed, balance of Rs \' + formatMoney(remaining) + \',\', \'due one day before check-in, i.e. \' + dueDateStr + \'.\'],\n' +
+'    balanceLines: [\'Booking confirmed, balance of \' + formatMoney(remaining) + \',\', \'Due one day before check-in, i.e. \' + dueDateStr + \'.\'],\n' +
 '    nonRefundable: \'Advance payment is non-refundable.\'\n' +
 '  };\n' +
 '}\n' +
@@ -1009,7 +1010,7 @@ var APPS_SCRIPT_CODE =
 '  row.getCell(0, 0).setWidth(150);\n' +
 '  styleParaText(row.getCell(0, 0).getChild(0).asParagraph(), { bold: true, size: 10 });\n' +
 '  var valueCell = row.getCell(0, 1);\n' +
-'  valueCell.setBackgroundColor(\'#FBD3C5\');\n' +
+'  valueCell.setBackgroundColor(RECEIPT_FILL_COLOR);\n' +
 '  valueCell.setPaddingTop(5).setPaddingBottom(5).setPaddingLeft(8);\n' +
 '  styleParaText(valueCell.getChild(0).asParagraph(), { bold: true, size: 10 });\n' +
 '  return row;\n' +
@@ -1099,12 +1100,13 @@ var APPS_SCRIPT_CODE =
 '  var balanceTable = body.appendTable([[\'\']]);\n' +
 '  balanceTable.setBorderWidth(0);\n' +
 '  var balanceCell = balanceTable.getCell(0, 0);\n' +
-'  balanceCell.setBackgroundColor(\'#FBD3C5\');\n' +
+'  balanceCell.setBackgroundColor(RECEIPT_FILL_COLOR);\n' +
 '  balanceCell.setPaddingTop(8).setPaddingBottom(8).setPaddingLeft(10).setPaddingRight(10);\n' +
-'  content.balanceLines.forEach(function (line, i) {\n' +
-'    var p = i === 0 ? balanceCell.getChild(0).asParagraph() : balanceCell.appendParagraph(\'\');\n' +
-'    p.setText(line);\n' +
-'    styleParaText(p, { size: 10 });\n' +
+'  balanceCell.getChild(0).asParagraph().removeFromParent();\n' +
+'  content.balanceLines.forEach(function (line) {\n' +
+'    var li = balanceCell.appendListItem(line);\n' +
+'    li.setGlyphType(DocumentApp.GlyphType.BULLET);\n' +
+'    styleParaText(li, { size: 10 });\n' +
 '  });\n' +
 '\n' +
 '  var bullet = body.appendListItem(\'Early check-in is subject to availability\');\n' +
