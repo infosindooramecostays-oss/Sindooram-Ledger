@@ -1019,6 +1019,23 @@ var APPS_SCRIPT_CODE =
 '  if (opts.size) t.setFontSize(opts.size);\n' +
 '}\n' +
 '\n' +
+'// A bullet line built as plain text with a manually-prefixed "•" instead of\n' +
+'// a native list item — Apps Script\'s list items always use a plain black\n' +
+'// glyph with no way to recolor just the bullet, which reads jarring next\n' +
+'// to this warm palette. Coloring only the bullet character keeps the body\n' +
+'// text itself in the normal ink color.\n' +
+'var BULLET_COLOR = \'#8F4128\';\n' +
+'function appendBulletLine(cell, text, opts) {\n' +
+'  opts = opts || {};\n' +
+'  var bullet = \'•  \';\n' +
+'  var p = cell.appendParagraph(bullet + text);\n' +
+'  var t = p.editAsText();\n' +
+'  t.setFontFamily(RECEIPT_FONT);\n' +
+'  if (opts.size) t.setFontSize(opts.size);\n' +
+'  t.setForegroundColor(0, 0, BULLET_COLOR);\n' +
+'  return p;\n' +
+'}\n' +
+'\n' +
 '// A borderless 2-column [label, value] row, value cell highlighted — the\n' +
 '// same "fill-in line" look as the paper template.\n' +
 'function appendFieldRow(body, label, value) {\n' +
@@ -1117,22 +1134,17 @@ var APPS_SCRIPT_CODE =
 '  body.appendPageBreak();\n' +
 '  styleParaText(body.appendParagraph(\'Payment Terms & Conditions\'), { bold: true, color: \'#8F4128\', size: 12 });\n' +
 '\n' +
-'  var balanceTable = body.appendTable([[\'\']]);\n' +
-'  balanceTable.setBorderWidth(0);\n' +
-'  var balanceCell = balanceTable.getCell(0, 0);\n' +
-'  balanceCell.setBackgroundColor(RECEIPT_FILL_COLOR);\n' +
-'  balanceCell.setPaddingTop(8).setPaddingBottom(8).setPaddingLeft(10).setPaddingRight(10);\n' +
-'  balanceCell.getChild(0).asParagraph().removeFromParent();\n' +
+'  var termsTable = body.appendTable([[\'\']]);\n' +
+'  termsTable.setBorderWidth(0);\n' +
+'  var termsCell = termsTable.getCell(0, 0);\n' +
+'  termsCell.setBackgroundColor(RECEIPT_FILL_COLOR);\n' +
+'  termsCell.setPaddingTop(10).setPaddingBottom(10).setPaddingLeft(12).setPaddingRight(12);\n' +
+'  termsCell.getChild(0).asParagraph().removeFromParent();\n' +
 '  content.balanceLines.forEach(function (line) {\n' +
-'    var li = balanceCell.appendListItem(line);\n' +
-'    li.setGlyphType(DocumentApp.GlyphType.BULLET);\n' +
-'    styleParaText(li, { size: 10 });\n' +
+'    appendBulletLine(termsCell, line, { size: 10 });\n' +
 '  });\n' +
-'\n' +
-'  var bullet = body.appendListItem(\'Early check-in is subject to availability\');\n' +
-'  bullet.setGlyphType(DocumentApp.GlyphType.BULLET);\n' +
-'  bullet.editAsText().setFontFamily(RECEIPT_FONT).setFontSize(10);\n' +
-'  styleParaText(body.appendParagraph(content.nonRefundable), { bold: true, size: 10 });\n' +
+'  appendBulletLine(termsCell, \'Early check-in is subject to availability\', { size: 10 });\n' +
+'  styleParaText(termsCell.appendParagraph(content.nonRefundable), { bold: true, size: 10 });\n' +
 '\n' +
 '  body.appendParagraph(\'\');\n' +
 '  styleParaText(body.appendParagraph(\'If you have any questions before your stay, feel free to reach out to us directly on WhatsApp: +91 98460 22350.\'), { size: 10 });\n' +
