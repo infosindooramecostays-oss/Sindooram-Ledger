@@ -321,6 +321,7 @@ function appendBulletLine(cell, text, opts) {
   var t = p.editAsText();
   t.setFontFamily(RECEIPT_FONT);
   if (opts.size) t.setFontSize(opts.size);
+  if (opts.bold) t.setBold(true);
   t.setForegroundColor(0, 0, BULLET_COLOR);
   return p;
 }
@@ -433,7 +434,7 @@ function buildReceiptPdf(input) {
     appendBulletLine(termsCell, line, { size: 10 });
   });
   appendBulletLine(termsCell, 'Early check-in is subject to availability', { size: 10 });
-  styleParaText(termsCell.appendParagraph(content.nonRefundable), { bold: true, size: 10 });
+  appendBulletLine(termsCell, content.nonRefundable, { size: 10, bold: true });
 
   body.appendParagraph('');
   styleParaText(body.appendParagraph('If you have any questions before your stay, feel free to reach out to us directly on WhatsApp: +91 98460 22350.'), { size: 10 });
