@@ -1691,7 +1691,12 @@ function deleteTxn(id){
 
 /* ---------- Booking modal ---------- */
 var bookingModalOverlay, bookingForm, bookingIdInput, bookingNumberInput, guestNameInput, guestEmailInput, guestPhoneInput, bookingGuestsInput, checkInInput, checkOutInput, bookingSourceSel, bookingAmountInput, bookingStatusSel, bookingStatusOther, bookingRemarksInput, bookingAddedByInput, bookingDeleteBtn, bookingModalTitle;
-function nextBookingNumber(){ return 'BK-' + String(state.bookings.length + 1).padStart(4,'0'); }
+function nextBookingNumber(){
+  var year = new Date().getFullYear();
+  var prefix = 'SE-' + year + '-';
+  var count = state.bookings.filter(function(b){ return String(b.bookingNumber || '').indexOf(prefix) === 0; }).length;
+  return prefix + String(count + 1).padStart(2,'0');
+}
 function getBookingStatusList(){
   var seen = [];
   state.bookings.forEach(function(b){
