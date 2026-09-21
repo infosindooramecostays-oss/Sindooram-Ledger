@@ -343,9 +343,10 @@ function buildReceiptPdf(input) {
     img.setWidth(150);
     img.setHeight(Math.round(150 * ratio));
   } catch (imgErr) {
+    Logger.log('Logo fetch failed: ' + imgErr);
     var logoFallback = logoCell.getChild(0).asParagraph();
-    logoFallback.setText('Sindooram Ecostay');
-    styleParaText(logoFallback, { bold: true });
+    logoFallback.setText('Sindooram Ecostay (logo error: ' + imgErr.message + ')');
+    styleParaText(logoFallback, { bold: true, size: 8 });
   }
   var infoCell = head.getCell(0, 1);
   infoCell.clear();

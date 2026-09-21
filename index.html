@@ -1040,9 +1040,10 @@ var APPS_SCRIPT_CODE =
 '    img.setWidth(150);\n' +
 '    img.setHeight(Math.round(150 * ratio));\n' +
 '  } catch (imgErr) {\n' +
+'    Logger.log(\'Logo fetch failed: \' + imgErr);\n' +
 '    var logoFallback = logoCell.getChild(0).asParagraph();\n' +
-'    logoFallback.setText(\'Sindooram Ecostay\');\n' +
-'    styleParaText(logoFallback, { bold: true });\n' +
+'    logoFallback.setText(\'Sindooram Ecostay (logo error: \' + imgErr.message + \')\');\n' +
+'    styleParaText(logoFallback, { bold: true, size: 8 });\n' +
 '  }\n' +
 '  var infoCell = head.getCell(0, 1);\n' +
 '  infoCell.clear();\n' +
