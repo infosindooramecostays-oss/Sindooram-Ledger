@@ -260,7 +260,8 @@ function createMonthlyReportTrigger() {
 // ===== Payment receipts (Confirmed-Advance / Confirmed-Paid, Direct bookings only) =====
 
 var LOGO_URL = 'https://infosindooramecostays-oss.github.io/Sindooram-Ledger/assets/brand/sindooram-logo.jpeg';
-var RECEIPTS_FOLDER_NAME = 'Sindooram Receipts';
+var RECEIPTS_FOLDER_NAME = 'Payment receipt';
+var RECEIPT_FONT = 'Arial';
 
 function getOrCreateFolder(parent, name) {
   var existing = parent.getFoldersByName(name);
@@ -293,6 +294,7 @@ function getReceiptContent(input) {
 // having its own style setters — editAsText() always works.
 function styleParaText(paragraph, opts) {
   var t = paragraph.editAsText();
+  t.setFontFamily(RECEIPT_FONT);
   if (opts.bold) t.setBold(true);
   if (opts.color) t.setForegroundColor(opts.color);
   if (opts.size) t.setFontSize(opts.size);
@@ -400,11 +402,13 @@ function buildReceiptPdf(input) {
   content.balanceLines.forEach(function (line, i) {
     var p = i === 0 ? balanceCell.getChild(0).asParagraph() : balanceCell.appendParagraph('');
     p.setText(line);
+    styleParaText(p, { size: 10 });
   });
 
   var bullet = body.appendListItem('Early check-in is subject to availability');
   bullet.setGlyphType(DocumentApp.GlyphType.BULLET);
-  styleParaText(body.appendParagraph(content.nonRefundable), { bold: true });
+  bullet.editAsText().setFontFamily(RECEIPT_FONT).setFontSize(10);
+  styleParaText(body.appendParagraph(content.nonRefundable), { bold: true, size: 10 });
 
   body.appendParagraph('');
   styleParaText(body.appendParagraph('If you have any questions before your stay, feel free to reach out to us directly on WhatsApp: +91 98460 22350.'), { size: 10 });
@@ -483,8 +487,9 @@ function handleSendReceipt(data) {
   var email = receiptEmailContent(input);
   MailApp.sendEmail({ to: input.guestEmail, subject: email.subject, body: email.bodyText, attachments: [pdfBlob] });
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var folder = getOrCreateFolder(DriveApp.getRootFolder(), RECEIPTS_FOLDER_NAME);
-  var savedFile = folder.createFile(pdfBlob);
+  var receiptsFolder = getOrCreateFolder(DriveApp.getRootFolder(), RECEIPTS_FOLDER_NAME);
+  var bookingFolder = getOrCreateFolder(receiptsFolder, input.bookingNumber);
+  var savedFile = bookingFolder.createFile(pdfBlob);
   logReceipt(ss, input, savedFile.getUrl());
   return { status: 'sent' };
 }
