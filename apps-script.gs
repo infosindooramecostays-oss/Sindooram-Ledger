@@ -260,7 +260,11 @@ function createMonthlyReportTrigger() {
 // ===== Payment receipts (Confirmed-Advance / Confirmed-Paid, Direct bookings only) =====
 
 var LOGO_URL = 'https://infosindooramecostays-oss.github.io/Sindooram-Ledger/assets/brand/sindooram-logo.jpeg';
-var RECEIPTS_FOLDER_NAME = 'Payment receipt';
+// The exact "Payment receipt" folder the user already created — using its
+// ID (from the folder's own URL) instead of searching by name, since a
+// name search only looks at the top level of My Drive and this folder
+// isn't there.
+var RECEIPTS_FOLDER_ID = '1bMOGMDEEn9aaP5p_Z1wBbsoUNdMEOkrg';
 var RECEIPT_FONT = 'Arial';
 
 function getOrCreateFolder(parent, name) {
@@ -487,7 +491,7 @@ function handleSendReceipt(data) {
   var email = receiptEmailContent(input);
   MailApp.sendEmail({ to: input.guestEmail, subject: email.subject, body: email.bodyText, attachments: [pdfBlob] });
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var receiptsFolder = getOrCreateFolder(DriveApp.getRootFolder(), RECEIPTS_FOLDER_NAME);
+  var receiptsFolder = DriveApp.getFolderById(RECEIPTS_FOLDER_ID);
   var bookingFolder = getOrCreateFolder(receiptsFolder, input.bookingNumber);
   var savedFile = bookingFolder.createFile(pdfBlob);
   logReceipt(ss, input, savedFile.getUrl());

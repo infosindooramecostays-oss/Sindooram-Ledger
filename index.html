@@ -957,7 +957,11 @@ var APPS_SCRIPT_CODE =
 '// ===== Payment receipts (Confirmed-Advance / Confirmed-Paid, Direct bookings only) =====\n' +
 '\n' +
 'var LOGO_URL = \'https://infosindooramecostays-oss.github.io/Sindooram-Ledger/assets/brand/sindooram-logo.jpeg\';\n' +
-'var RECEIPTS_FOLDER_NAME = \'Payment receipt\';\n' +
+'// The exact "Payment receipt" folder the user already created — using its\n' +
+'// ID (from the folder\'s own URL) instead of searching by name, since a\n' +
+'// name search only looks at the top level of My Drive and this folder\n' +
+'// isn\'t there.\n' +
+'var RECEIPTS_FOLDER_ID = \'1bMOGMDEEn9aaP5p_Z1wBbsoUNdMEOkrg\';\n' +
 'var RECEIPT_FONT = \'Arial\';\n' +
 '\n' +
 'function getOrCreateFolder(parent, name) {\n' +
@@ -1184,7 +1188,7 @@ var APPS_SCRIPT_CODE =
 '  var email = receiptEmailContent(input);\n' +
 '  MailApp.sendEmail({ to: input.guestEmail, subject: email.subject, body: email.bodyText, attachments: [pdfBlob] });\n' +
 '  var ss = SpreadsheetApp.getActiveSpreadsheet();\n' +
-'  var receiptsFolder = getOrCreateFolder(DriveApp.getRootFolder(), RECEIPTS_FOLDER_NAME);\n' +
+'  var receiptsFolder = DriveApp.getFolderById(RECEIPTS_FOLDER_ID);\n' +
 '  var bookingFolder = getOrCreateFolder(receiptsFolder, input.bookingNumber);\n' +
 '  var savedFile = bookingFolder.createFile(pdfBlob);\n' +
 '  logReceipt(ss, input, savedFile.getUrl());\n' +
