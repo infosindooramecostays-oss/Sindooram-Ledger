@@ -564,7 +564,7 @@ details.card summary:hover{ color:var(--accent); }
       </div>
       <div class="field-row">
         <div class="field-group">
-          <label class="field-label">No. of guests <span class="field-optional">optional</span></label>
+          <label class="field-label">No. of guests <span class="field-optional" id="bookingGuestsOptionalTag">optional</span></label>
           <input type="number" min="0" step="1" id="bookingGuests" class="field-input" inputmode="numeric">
         </div>
         <div class="field-group">
@@ -2350,9 +2350,15 @@ function updateDirectRequiredFields(){
   checkInInput.required = isDirect;
   checkOutInput.required = isDirect;
   bookingAmountInput.required = isDirect;
+  bookingGuestsInput.required = isDirect;
+  bookingNumberInput.required = isDirect;
   document.getElementById('guestEmailOptionalTag').style.display = isDirect ? 'none' : '';
+  document.getElementById('bookingGuestsOptionalTag').style.display = isDirect ? 'none' : '';
 }
 function onBookingSourceChange(){
+  if(bookingSourceSel.value === 'Direct' && !bookingNumberInput.value.trim()){
+    bookingNumberInput.value = nextBookingNumber();
+  }
   updateDirectRequiredFields();
   updateReceiptSectionVisibility();
 }
