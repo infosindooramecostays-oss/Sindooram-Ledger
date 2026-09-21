@@ -1114,7 +1114,7 @@ var APPS_SCRIPT_CODE =
 '  appendFieldRow(body, \'Guests\', String(input.guests || \'\'));\n' +
 '  appendFieldRow(body, \'Rate includes\', input.rateIncludes || \'\');\n' +
 '\n' +
-'  body.appendParagraph(\'\');\n' +
+'  body.appendPageBreak();\n' +
 '  styleParaText(body.appendParagraph(\'Payment Terms & Conditions\'), { bold: true, color: \'#8F4128\', size: 12 });\n' +
 '\n' +
 '  var balanceTable = body.appendTable([[\'\']]);\n' +

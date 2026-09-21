@@ -403,7 +403,7 @@ function buildReceiptPdf(input) {
   appendFieldRow(body, 'Guests', String(input.guests || ''));
   appendFieldRow(body, 'Rate includes', input.rateIncludes || '');
 
-  body.appendParagraph('');
+  body.appendPageBreak();
   styleParaText(body.appendParagraph('Payment Terms & Conditions'), { bold: true, color: '#8F4128', size: 12 });
 
   var balanceTable = body.appendTable([['']]);
