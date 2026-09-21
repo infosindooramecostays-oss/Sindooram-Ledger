@@ -613,7 +613,7 @@ details.card summary:hover{ color:var(--accent); }
       <button class="modal-close" data-action="close-receipt-preview" aria-label="Close">&times;</button>
     </div>
     <p class="sync-status" id="receiptPreviewStatus">Generating…</p>
-    <iframe id="receiptPdfFrame" title="Receipt PDF preview" style="width:100%;height:340px;border:1px solid var(--border);border-radius:10px;display:none;"></iframe>
+    <button type="button" class="btn-secondary" id="viewReceiptPdfBtn" data-action="view-receipt-pdf" style="width:100%;display:none;">View receipt PDF</button>
     <div class="field-group" style="margin-top:14px;">
       <label class="field-label">Email to</label>
       <div class="field-input" id="receiptEmailTo" style="background:var(--surface-2);"></div>
@@ -630,6 +630,20 @@ details.card summary:hover{ color:var(--accent); }
       <button type="button" class="btn-secondary" data-action="close-receipt-preview">Cancel</button>
       <button type="button" class="btn-primary" id="sendReceiptBtn" data-action="send-receipt" disabled>Send email</button>
     </div>
+  </div>
+</div>
+
+<!-- Receipt PDF full view — opens on top of the preview modal for a much
+     bigger, easier-to-read look at the actual PDF; closing it returns to
+     the preview modal underneath (still open, with email details + Send). -->
+<div class="modal-overlay" id="receiptPdfOverlay" style="z-index:60;">
+  <div class="modal" style="max-width:640px;height:92vh;max-height:92vh;display:flex;flex-direction:column;">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <h3>Receipt PDF</h3>
+      <button class="modal-close" data-action="close-receipt-pdf" aria-label="Close">&times;</button>
+    </div>
+    <iframe id="receiptPdfFrame" title="Receipt PDF preview" style="width:100%;flex:1;border:1px solid var(--border);border-radius:10px;"></iframe>
   </div>
 </div>
 
@@ -1119,7 +1133,9 @@ var APPS_SCRIPT_CODE =
 '  styleParaText(body.appendParagraph(\'Feel free to check out our website for things to do nearby and more to help you plan your stay: sindooramecostays.com.\'), { size: 10 });\n' +
 '  body.appendParagraph(\'\');\n' +
 '  styleParaText(body.appendParagraph(\'Looking forward to welcoming you all soon!\'), { size: 10 });\n' +
-'  styleParaText(body.appendParagraph(\'Regards,\'), { size: 10 });\n' +
+'  styleParaText(body.appendParagraph(\'Thanks,\'), { size: 10 });\n' +
+'  body.appendParagraph(\'\');\n' +
+'  styleParaText(body.appendParagraph(\'warm regards\'), { size: 10 });\n' +
 '  styleParaText(body.appendParagraph(\'Team Sindooram\'), { bold: true, size: 10 });\n' +
 '\n' +
 '  doc.saveAndClose();\n' +
@@ -2331,7 +2347,7 @@ function copyScript(){
 
 /* ---------- Payment receipts (Confirmed-Advance / Confirmed-Paid, Direct only) ---------- */
 var receiptSection, previewReceiptBtn, receiptAmountReceived, receiptReceivedDate, receiptRateIncludes;
-var receiptPreviewOverlay, receiptPdfFrame, receiptPreviewStatus, receiptEmailTo, receiptEmailSubject, receiptEmailBody, sendReceiptBtn;
+var receiptPreviewOverlay, receiptPdfOverlay, receiptPdfFrame, viewReceiptPdfBtn, receiptPreviewStatus, receiptEmailTo, receiptEmailSubject, receiptEmailBody, sendReceiptBtn;
 var receiptLastPayload = null;
 function receiptEligible(){
   var status = getComboValue(bookingStatusSel, bookingStatusOther);
@@ -2397,7 +2413,8 @@ function previewReceipt(){
   };
   receiptPreviewStatus.textContent = 'Generating…';
   receiptPreviewStatus.style.display = 'block';
-  receiptPdfFrame.style.display = 'none';
+  viewReceiptPdfBtn.style.display = 'none';
+  receiptPdfFrame.src = 'about:blank';
   receiptEmailTo.textContent = '';
   receiptEmailSubject.textContent = '';
   receiptEmailBody.textContent = '';
@@ -2407,12 +2424,13 @@ function previewReceipt(){
     if(res.error) throw new Error(res.error);
     receiptPreviewStatus.style.display = 'none';
     receiptPdfFrame.src = 'data:application/pdf;base64,' + res.pdfBase64;
-    receiptPdfFrame.style.display = 'block';
+    viewReceiptPdfBtn.style.display = 'block';
     receiptEmailTo.textContent = res.toEmail || '(no email on file)';
     receiptEmailSubject.textContent = res.subject;
     receiptEmailBody.textContent = res.bodyText;
     sendReceiptBtn.disabled = !res.toEmail;
     receiptLastPayload = payload;
+    showModal(receiptPdfOverlay);
   }).catch(function(err){
     receiptPreviewStatus.style.display = 'block';
     receiptPreviewStatus.textContent = 'Could not generate receipt: ' + err.message;
@@ -2467,6 +2485,8 @@ document.addEventListener('click', function(e){
     case 'copy-script': copyScript(); break;
     case 'preview-receipt': previewReceipt(); break;
     case 'close-receipt-preview': hideModal(receiptPreviewOverlay); break;
+    case 'view-receipt-pdf': showModal(receiptPdfOverlay); break;
+    case 'close-receipt-pdf': hideModal(receiptPdfOverlay); break;
     case 'send-receipt': sendReceiptNow(); break;
   }
 });
@@ -2519,7 +2539,9 @@ function init(){
   receiptReceivedDate = document.getElementById('receiptReceivedDate');
   receiptRateIncludes = document.getElementById('receiptRateIncludes');
   receiptPreviewOverlay = document.getElementById('receiptPreviewOverlay');
+  receiptPdfOverlay = document.getElementById('receiptPdfOverlay');
   receiptPdfFrame = document.getElementById('receiptPdfFrame');
+  viewReceiptPdfBtn = document.getElementById('viewReceiptPdfBtn');
   receiptPreviewStatus = document.getElementById('receiptPreviewStatus');
   receiptEmailTo = document.getElementById('receiptEmailTo');
   receiptEmailSubject = document.getElementById('receiptEmailSubject');
@@ -2527,6 +2549,7 @@ function init(){
   sendReceiptBtn = document.getElementById('sendReceiptBtn');
   bookingSourceSel.addEventListener('change', onBookingSourceChange);
   receiptPreviewOverlay.addEventListener('click', function(e){ if(e.target === receiptPreviewOverlay) hideModal(receiptPreviewOverlay); });
+  receiptPdfOverlay.addEventListener('click', function(e){ if(e.target === receiptPdfOverlay) hideModal(receiptPdfOverlay); });
 
   document.getElementById('fabAdd').addEventListener('click', function(){
     if(!state.settings.appsScriptUrl){ toast('Connect your Google Sheet in Settings first'); switchTab('settings'); return; }

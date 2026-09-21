@@ -422,7 +422,9 @@ function buildReceiptPdf(input) {
   styleParaText(body.appendParagraph('Feel free to check out our website for things to do nearby and more to help you plan your stay: sindooramecostays.com.'), { size: 10 });
   body.appendParagraph('');
   styleParaText(body.appendParagraph('Looking forward to welcoming you all soon!'), { size: 10 });
-  styleParaText(body.appendParagraph('Regards,'), { size: 10 });
+  styleParaText(body.appendParagraph('Thanks,'), { size: 10 });
+  body.appendParagraph('');
+  styleParaText(body.appendParagraph('warm regards'), { size: 10 });
   styleParaText(body.appendParagraph('Team Sindooram'), { bold: true, size: 10 });
 
   doc.saveAndClose();
