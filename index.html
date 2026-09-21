@@ -526,7 +526,7 @@ details.card summary:hover{ color:var(--accent); }
       </div>
       <div class="field-row" id="bookingContactRow">
         <div class="field-group">
-          <label class="field-label">Guest email <span class="field-optional">optional</span></label>
+          <label class="field-label">Guest email <span class="field-optional" id="guestEmailOptionalTag">optional</span></label>
           <input type="email" id="guestEmail" class="field-input" placeholder="name@example.com">
         </div>
         <div class="field-group">
@@ -2124,7 +2124,7 @@ function openBookingModal(id){
   receiptAmountReceived.value = defaultReceiptAmount() || '';
   receiptReceivedDate.value = todayStr();
   receiptRateIncludes.value = 'Breakfast from our set menu';
-  updateReceiptSectionVisibility();
+  onBookingSourceChange();
   showModal(bookingModalOverlay);
 }
 function renameBookingStatusPrompt(){
@@ -2340,6 +2340,22 @@ function receiptEligible(){
 function updateReceiptSectionVisibility(){
   receiptSection.style.display = (receiptEligible() && bookingIdInput.value) ? 'block' : 'none';
 }
+// Direct bookings go through the receipt/email flow, which needs these
+// fields — OTA/automation-imported bookings (Airbnb, Booking.com) stay
+// fully optional since they often arrive incomplete.
+function updateDirectRequiredFields(){
+  var isDirect = bookingSourceSel.value === 'Direct';
+  guestNameInput.required = isDirect;
+  guestEmailInput.required = isDirect;
+  checkInInput.required = isDirect;
+  checkOutInput.required = isDirect;
+  bookingAmountInput.required = isDirect;
+  document.getElementById('guestEmailOptionalTag').style.display = isDirect ? 'none' : '';
+}
+function onBookingSourceChange(){
+  updateDirectRequiredFields();
+  updateReceiptSectionVisibility();
+}
 function onBookingStatusChange(){
   var status = getComboValue(bookingStatusSel, bookingStatusOther);
   if((status === 'Confirmed-Advance' || status === 'Confirmed-Paid') && !bookingNumberInput.value.trim()){
@@ -2503,7 +2519,7 @@ function init(){
   receiptEmailSubject = document.getElementById('receiptEmailSubject');
   receiptEmailBody = document.getElementById('receiptEmailBody');
   sendReceiptBtn = document.getElementById('sendReceiptBtn');
-  bookingSourceSel.addEventListener('change', updateReceiptSectionVisibility);
+  bookingSourceSel.addEventListener('change', onBookingSourceChange);
   receiptPreviewOverlay.addEventListener('click', function(e){ if(e.target === receiptPreviewOverlay) hideModal(receiptPreviewOverlay); });
 
   document.getElementById('fabAdd').addEventListener('click', function(){
