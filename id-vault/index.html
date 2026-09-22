@@ -765,7 +765,8 @@ function renderPendingList(){
   var btn = document.getElementById('uploadSubmitBtn');
   if(!listEl || !btn) return;
   listEl.innerHTML = pendingFiles.length ? pendingFiles.map(function(p){
-    return '<div class="upload-row"><span class="name">' + escapeHtml(p.file.name) + '</span><a class="view-link" href="' + p.previewUrl + '" target="_blank" rel="noopener">View</a><button type="button" class="remove-pending-btn" data-action="remove-pending" data-id="' + p.id + '">Remove</button></div>';
+    var viewLink = p.previewUrl ? ('<a class="view-link" href="' + p.previewUrl + '" target="_blank" rel="noopener">View</a>') : '';
+    return '<div class="upload-row"><span class="name">' + escapeHtml(p.file.name) + '</span>' + viewLink + '<button type="button" class="remove-pending-btn" data-action="remove-pending" data-id="' + p.id + '">Remove</button></div>';
   }).join('') : '<p class="empty-hint">Nothing selected yet — tap Take Photo, Choose Photos, or Choose Document above.</p>';
   btn.disabled = pendingFiles.length === 0;
   btn.textContent = pendingFiles.length ? ('Submit ' + pendingFiles.length + ' file' + (pendingFiles.length > 1 ? 's' : '')) : 'Submit';
@@ -879,7 +880,9 @@ function fileToBase64(file){
 }
 function addPendingFile(file){
   if(!file) return;
-  pendingFiles.push({ id: 'p' + (++pendingIdCounter), file: file, previewUrl: URL.createObjectURL(file) });
+  var previewUrl = '';
+  try{ previewUrl = URL.createObjectURL(file); }catch(err){}
+  pendingFiles.push({ id: 'p' + (++pendingIdCounter), file: file, previewUrl: previewUrl });
   renderPendingList();
 }
 function removePendingFile(id){
@@ -1120,18 +1123,23 @@ function init(){
   loadState();
   document.getElementById('cameraInput').addEventListener('change', function(e){
     var file = e.target.files[0];
-    e.target.value = '';
     if(file) addPendingFile(file);
+    else toast('No photo captured');
+    e.target.value = '';
   });
   document.getElementById('fileInput').addEventListener('change', function(e){
     var files = e.target.files;
+    var count = files.length;
+    for(var i = 0; i < count; i++) addPendingFile(files[i]);
+    toast(count ? ('Added ' + count + ' photo' + (count > 1 ? 's' : '') + ' — see Ready to upload') : 'No photos were selected');
     e.target.value = '';
-    for(var i = 0; i < files.length; i++) addPendingFile(files[i]);
   });
   document.getElementById('docInput').addEventListener('change', function(e){
     var files = e.target.files;
+    var count = files.length;
+    for(var i = 0; i < count; i++) addPendingFile(files[i]);
+    toast(count ? ('Added ' + count + ' document' + (count > 1 ? 's' : '') + ' — see Ready to upload') : 'No documents were selected');
     e.target.value = '';
-    for(var i = 0; i < files.length; i++) addPendingFile(files[i]);
   });
   setConnStatus(state.settings.appsScriptUrl ? 'loading' : 'idle');
   switchTab('bookings');
