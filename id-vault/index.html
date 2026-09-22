@@ -133,11 +133,11 @@ input:focus, select:focus, textarea:focus{ outline:none; border-color:var(--acce
 input[type="date"].field-input{ -webkit-appearance:none; appearance:none; }
 textarea.field-input{ resize:vertical; min-height:64px; }
 
-.upload-actions{ display:flex; gap:10px; margin-bottom:14px; }
+.upload-actions{ display:flex; flex-wrap:wrap; gap:10px; margin-bottom:14px; }
 .upload-btn{
-  flex:1; display:flex; flex-direction:column; align-items:center; gap:8px; padding:18px 10px;
+  flex:1 1 90px; display:flex; flex-direction:column; align-items:center; gap:8px; padding:14px 8px;
   border-radius:16px; border:1.5px dashed var(--border); background:var(--surface-2); color:var(--text-primary);
-  font-size:13px; font-weight:600; cursor:pointer;
+  font-size:12.5px; font-weight:600; cursor:pointer; text-align:center;
 }
 .upload-btn:hover{ border-color:var(--accent); color:var(--accent); }
 .upload-btn svg{ color:var(--accent); }
@@ -154,6 +154,7 @@ textarea.field-input{ resize:vertical; min-height:64px; }
 .remove-pending-btn:hover{ text-decoration:underline; }
 .view-link{ color:var(--accent); font-size:12px; font-weight:700; text-decoration:none; padding:4px 8px; flex:none; }
 .view-link:hover{ text-decoration:underline; }
+.upload-meta{ font-size:11px; color:var(--text-muted); flex:none; white-space:nowrap; }
 .btn-primary:disabled{ opacity:.45; cursor:not-allowed; box-shadow:none; }
 
 .detail-row{ display:flex; justify-content:space-between; align-items:baseline; gap:10px; padding:9px 0; border-bottom:1px solid var(--grid); font-size:14px; }
@@ -222,6 +223,7 @@ details.card[open] summary::after{ content:'−'; }
 
 <main id="app">
   <section id="tab-bookings" class="tab active"></section>
+  <section id="tab-calendar" class="tab"></section>
   <section id="tab-settings" class="tab"></section>
 </main>
 
@@ -230,6 +232,10 @@ details.card[open] summary::after{ content:'−'; }
     <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v4M16 3v4"/></svg>
     Bookings
   </button>
+  <button class="navbtn" data-action="switch-tab" data-tab="calendar">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v4M16 3v4"/><circle cx="8" cy="14" r="1.3" fill="currentColor" stroke="none"/><circle cx="12" cy="14" r="1.3" fill="currentColor" stroke="none"/><circle cx="16" cy="14" r="1.3" fill="currentColor" stroke="none"/></svg>
+    Calendar
+  </button>
   <button class="navbtn" data-action="switch-tab" data-tab="settings">
     <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.9 2.9l-.1-.1a1.7 1.7 0 00-1.9-.3 1.7 1.7 0 00-1 1.6V21a2 2 0 01-4 0v-.1a1.7 1.7 0 00-1-1.6 1.7 1.7 0 00-1.9.3l-.1.1a2 2 0 11-2.9-2.9l.1-.1a1.7 1.7 0 00.3-1.9 1.7 1.7 0 00-1.6-1H3a2 2 0 010-4h.1a1.7 1.7 0 001.6-1 1.7 1.7 0 00-.3-1.9l-.1-.1a2 2 0 112.9-2.9l.1.1a1.7 1.7 0 001.9.3H9a1.7 1.7 0 001-1.6V3a2 2 0 014 0v.1a1.7 1.7 0 001 1.6 1.7 1.7 0 001.9-.3l.1-.1a2 2 0 112.9 2.9l-.1.1a1.7 1.7 0 00-.3 1.9V9a1.7 1.7 0 001.6 1H21a2 2 0 010 4h-.1a1.7 1.7 0 00-1.6 1z"/></svg>
     Settings
@@ -237,7 +243,8 @@ details.card[open] summary::after{ content:'−'; }
 </nav>
 
 <input type="file" id="cameraInput" accept="image/*" capture="environment" hidden>
-<input type="file" id="fileInput" accept="image/*,.pdf,.doc,.docx,application/pdf,application/msword" hidden>
+<input type="file" id="fileInput" accept="image/*" multiple hidden>
+<input type="file" id="docInput" accept=".pdf,.doc,.docx,application/pdf,application/msword" multiple hidden>
 
 <div id="toast"></div>
 
@@ -276,14 +283,26 @@ var APPS_SCRIPT_CODE =
 '// The Drive folder everything gets saved under. Created automatically the\n' +
 '// first time anyone uploads a document — nothing to set up by hand.\n' +
 'var VAULT_FOLDER_NAME = \'Sindooram ID Vault\';\n\n' +
-'// Handles GET requests: returns recent bookings for the picker.\n' +
+'// Handles GET requests: returns recent bookings for the picker, or (when\n' +
+'// called with ?bookingNumber=...) the documents already on file for one\n' +
+'// specific booking, so the app can show what\'s already been uploaded.\n' +
 'function doGet(e) {\n' +
+'  var bookingNumber = e && e.parameter && e.parameter.bookingNumber;\n' +
+'  if (bookingNumber) {\n' +
+'    return jsonResponse({ uploads: getUploadsForBooking(bookingNumber) });\n' +
+'  }\n' +
 '  return jsonResponse({ bookings: getRecentBookings() });\n' +
 '}\n\n' +
-'// Handles POST requests: saves one uploaded file and logs it.\n' +
+'// Handles POST requests: saves one uploaded file and logs it, or (action\n' +
+'// \'deleteUpload\') removes a file someone just uploaded by mistake.\n' +
 'function doPost(e) {\n' +
 '  var data = JSON.parse(e.postData.contents);\n' +
-'  return jsonResponse(saveUpload(data));\n' +
+'  if (data.action === \'deleteUpload\') {\n' +
+'    try { return jsonResponse(deleteUpload(data)); }\n' +
+'    catch (err) { return jsonResponse({ error: String(err.message || err) }); }\n' +
+'  }\n' +
+'  try { return jsonResponse(saveUpload(data)); }\n' +
+'  catch (err) { return jsonResponse({ error: String(err.message || err) }); }\n' +
 '}\n\n' +
 'function jsonResponse(obj) {\n' +
 '  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);\n' +
@@ -304,10 +323,17 @@ var APPS_SCRIPT_CODE =
 '    if (row[0] === \'\' || row[0] === null) return false;\n' +
 '    return String(row[col[\'Status\']] || \'\').trim().toLowerCase() === \'confirmed\';\n' +
 '  });\n' +
+'  // Compare cleaned yyyy-MM-dd strings, not the raw cell values — rows added\n' +
+'  // by an outside automation can store Check-in as a real Date object while\n' +
+'  // rows added through the app store it as force-text (\'2026-09-30);\n' +
+'  // sorting the raw values mixes two incomparable formats and looks random.\n' +
+'  // Sort newest-first to pick the 60 most relevant (recent/upcoming) rows,\n' +
+'  // then flip to chronological order for display.\n' +
 '  rows.sort(function (a, b) {\n' +
-'    return String(b[col[\'Check-in\']]).localeCompare(String(a[col[\'Check-in\']]));\n' +
+'    return cleanText(b[col[\'Check-in\']]).localeCompare(cleanText(a[col[\'Check-in\']]));\n' +
 '  });\n' +
-'  return rows.slice(0, 60).map(function (row) {\n' +
+'  rows = rows.slice(0, 60).reverse();\n' +
+'  return rows.map(function (row) {\n' +
 '    return {\n' +
 '      bookingNumber: cleanText(row[col[\'Booking Number\']]),\n' +
 '      guestName: cleanText(row[col[\'Guest\']]),\n' +
@@ -343,6 +369,59 @@ var APPS_SCRIPT_CODE =
 '  logUpload(bookingNumber, data.guestName || \'\', checkInDate, data.comments || \'\', file.getName(), data.uploadedBy || \'\', file.getUrl());\n\n' +
 '  return { status: \'ok\', fileUrl: file.getUrl(), folderUrl: folder.getUrl() };\n' +
 '}\n\n' +
+'// Undoes a mistaken upload from the same session: trashes the Drive file\n' +
+'// and removes its row from the "ID Vault Uploads" log, matched by the\n' +
+'// file\'s URL (the same value the app got back when it uploaded it).\n' +
+'function deleteUpload(data) {\n' +
+'  var fileUrl = String(data.fileUrl || \'\');\n' +
+'  var m = fileUrl.match(/[-\\w]{25,}/);\n' +
+'  if (!m) throw new Error(\'Could not identify the file to remove.\');\n' +
+'  DriveApp.getFileById(m[0]).setTrashed(true);\n' +
+'  removeUploadLogRow(fileUrl);\n' +
+'  return { status: \'removed\' };\n' +
+'}\n\n' +
+'function removeUploadLogRow(fileUrl) {\n' +
+'  var ss = SpreadsheetApp.openById(LEDGER_SHEET_ID);\n' +
+'  var sheet = ss.getSheetByName(\'ID Vault Uploads\');\n' +
+'  if (!sheet) return;\n' +
+'  var values = sheet.getDataRange().getValues();\n' +
+'  if (values.length < 2) return;\n' +
+'  var headers = values[0];\n' +
+'  var linkCol = headers.indexOf(\'File Link\');\n' +
+'  if (linkCol === -1) return;\n' +
+'  for (var i = values.length - 1; i >= 1; i--) {\n' +
+'    if (values[i][linkCol] === fileUrl) {\n' +
+'      sheet.deleteRow(i + 1);\n' +
+'      break;\n' +
+'    }\n' +
+'  }\n' +
+'}\n\n' +
+'// Reads the "ID Vault Uploads" log and returns just the rows for one\n' +
+'// booking, newest first — this is what lets the app show "documents on\n' +
+'// file" for a booking even after leaving and coming back, or reloading.\n' +
+'function getUploadsForBooking(bookingNumber) {\n' +
+'  var ss = SpreadsheetApp.openById(LEDGER_SHEET_ID);\n' +
+'  var sheet = ss.getSheetByName(\'ID Vault Uploads\');\n' +
+'  if (!sheet) return [];\n' +
+'  var values = sheet.getDataRange().getValues();\n' +
+'  if (values.length < 2) return [];\n' +
+'  var headers = values[0];\n' +
+'  var col = {};\n' +
+'  headers.forEach(function (h, i) { col[h] = i; });\n' +
+'  var wanted = String(bookingNumber).trim();\n' +
+'  var rows = values.slice(1).filter(function (row) {\n' +
+'    return String(row[col[\'Booking Number\']] || \'\').trim() === wanted;\n' +
+'  });\n' +
+'  return rows.map(function (row) {\n' +
+'    var uploadedAt = row[col[\'Uploaded At\']];\n' +
+'    return {\n' +
+'      fileName: String(row[col[\'File Name\']] || \'\'),\n' +
+'      uploadedBy: String(row[col[\'Uploaded By\']] || \'\'),\n' +
+'      uploadedAt: uploadedAt instanceof Date ? Utilities.formatDate(uploadedAt, Session.getScriptTimeZone(), \'dd MMM, h:mm a\') : String(uploadedAt || \'\'),\n' +
+'      fileUrl: String(row[col[\'File Link\']] || \'\')\n' +
+'    };\n' +
+'  }).reverse();\n' +
+'}\n\n' +
 'function getVaultRootFolder() {\n' +
 '  return getOrCreateFolder(DriveApp.getRootFolder(), VAULT_FOLDER_NAME);\n' +
 '}\n\n' +
@@ -370,7 +449,7 @@ var TOUR_STEPS = {
     { title: 'Bookings ടാബ്', body: 'താഴെ ഇടത് വശത്തുള്ള Bookings ടാബിൽ സ്ഥിരീകരിച്ച (Confirmed) ബുക്കിംഗുകൾ കാണാം. ഏത് ബുക്കിംഗിന്റെ രേഖ അപ്‌ലോഡ് ചെയ്യണോ അതിൽ ടാപ്പ് ചെയ്യുക.' },
     { title: 'വിവരങ്ങൾ തനിയെ വരും', body: 'അതിഥിയുടെ പേര്, ബുക്കിംഗ് നമ്പർ, ചെക്ക്-ഇൻ തീയതി, റിമാർക്സ് ഉണ്ടെങ്കിൽ അതും — എല്ലാം തനിയെ കാണിക്കും. ഒന്നും ടൈപ്പ് ചെയ്യേണ്ട.' },
     { title: 'കുറിപ്പ് (ഓപ്ഷണൽ)', body: '"Additional comments" എന്നതിൽ എന്തെങ്കിലും കുറിപ്പ് വേണമെങ്കിൽ എഴുതാം. ഇത് നിർബന്ധമില്ല.' },
-    { title: 'ഫോട്ടോ / ഫയൽ ചേർക്കുക', body: '"Take Photo" ടാപ്പ് ചെയ്ത് ക്യാമറ ഉപയോഗിച്ച് ഫോട്ടോ എടുക്കാം, അല്ലെങ്കിൽ "Choose File" ടാപ്പ് ചെയ്ത് നേരത്തെയുള്ള ഫോട്ടോ/PDF തിരഞ്ഞെടുക്കാം. വേണമെങ്കിൽ ഒന്നിലധികം ഫയലുകൾ ചേർക്കാം.' },
+    { title: 'ഫോട്ടോ / ഫയൽ ചേർക്കുക', body: '"Take Photo" ടാപ്പ് ചെയ്ത് ക്യാമറ ഉപയോഗിച്ച് ഫോട്ടോ എടുക്കാം, "Choose Photos" ടാപ്പ് ചെയ്ത് ഒന്നിലധികം ഫോട്ടോകൾ ഒരുമിച്ച് തിരഞ്ഞെടുക്കാം, അല്ലെങ്കിൽ "Choose Document" ടാപ്പ് ചെയ്ത് PDF/Word ഫയൽ ചേർക്കാം.' },
     { title: 'അയക്കുന്നതിന് മുൻപ് പരിശോധിക്കുക', body: 'ചേർത്ത ഓരോ ഫയലിനും അരികിൽ "View" എന്ന ലിങ്ക് കാണാം — അതിൽ ടാപ്പ് ചെയ്ത് ഫയൽ ശരിയാണോ എന്ന് നോക്കാം. തെറ്റിയാൽ "Remove" ചെയ്ത് വീണ്ടും ചേർക്കാം.' },
     { title: 'Submit ചെയ്യുക', body: 'എല്ലാം ശരിയാണെങ്കിൽ "Submit" ബട്ടൺ ടാപ്പ് ചെയ്യുക. എല്ലാ ഫയലുകളും ഒരുമിച്ച് അപ്‌ലോഡ് ആകും.' },
     { title: 'അപ്‌ലോഡ് ആയോ എന്ന് എങ്ങനെ അറിയാം', body: 'Submit ചെയ്തതിന് ശേഷം താഴെ "Uploaded this session" എന്നതിൽ ഫയലിന്റെ പേരിന് അരികിൽ പച്ച നിറത്തിൽ "Uploaded" എന്ന് കാണിച്ചാൽ അത് ശരിയായി അപ്‌ലോഡ് ആയി എന്നാണ് അർത്ഥം. അരികിലുള്ള "View" ലിങ്കിൽ ടാപ്പ് ചെയ്ത് സേവ് ചെയ്ത ഫയൽ കാണാം. ചുവപ്പ് നിറത്തിൽ "Failed" കണ്ടാൽ വീണ്ടും ശ്രമിക്കുക.' },
@@ -381,7 +460,7 @@ var TOUR_STEPS = {
     { title: 'Bookings tab', body: 'The Bookings tab (bottom left) shows Confirmed bookings. Tap the booking you want to upload documents for.' },
     { title: 'Details fill in automatically', body: 'Guest name, booking number, check-in date, and remarks (if any) show automatically. Nothing to type here.' },
     { title: 'Comment (optional)', body: 'Write any note in "Additional comments" if needed. This is optional.' },
-    { title: 'Add a photo or file', body: 'Tap "Take Photo" to use the camera, or "Choose File" to pick an existing photo/PDF. You can add more than one file.' },
+    { title: 'Add a photo or file', body: 'Tap "Take Photo" to use the camera, "Choose Photos" to pick several photos at once from your gallery, or "Choose Document" for PDFs/Word files.' },
     { title: 'Check before sending', body: 'Each added file has a "View" link next to it — tap it to confirm the file is correct. If it\'s wrong, tap "Remove" and add it again.' },
     { title: 'Tap Submit', body: 'If everything looks right, tap "Submit". All files upload together.' },
     { title: 'How to know it uploaded', body: 'After Submit, look below in "Uploaded this session" — a green "Uploaded" label next to the file name means it saved successfully. Tap the "View" link there to see the saved file. A red "Failed" label means try again.' },
@@ -420,9 +499,14 @@ var currentTab = 'bookings';
 var connectionStatus = 'idle';
 var lastLoadedAt = null;
 var sessionUploads = [];
+var sessionUploadIdCounter = 0;
 var activeBooking = null;
 var pendingFiles = [];
 var pendingIdCounter = 0;
+var bookingUploads = [];
+var bookingUploadsLoading = false;
+var calendarMonth = new Date().getMonth();
+var calendarYear = new Date().getFullYear();
 
 /* ---------- Storage ---------- */
 function loadState(){
@@ -474,12 +558,13 @@ function switchTab(name){
   currentTab = name;
   document.querySelectorAll('.tab').forEach(function(t){ t.classList.toggle('active', t.id === 'tab-' + name); });
   document.querySelectorAll('.navbtn').forEach(function(b){ b.classList.toggle('active', b.dataset.tab === name); });
-  document.getElementById('topbarTitle').textContent = { bookings:'Bookings', settings:'Settings' }[name];
+  document.getElementById('topbarTitle').textContent = { bookings:'Bookings', calendar:'Calendar', settings:'Settings' }[name];
   if(name === 'bookings' && state.settings.appsScriptUrl) loadFromSheet(true);
   renderCurrentTab();
 }
 function renderCurrentTab(){
   if(currentTab === 'bookings') renderBookings();
+  else if(currentTab === 'calendar') renderCalendar();
   else renderSettings();
 }
 
@@ -513,6 +598,28 @@ function loadFromSheet(silent){
   }).catch(function(){
     setConnStatus('error');
     if(!silent) toast('Could not reach the Sheet');
+  });
+}
+// Fetches the documents already on file for one booking, so opening a
+// booking (even after a reload) shows what's been uploaded before —
+// not just what's been uploaded in this browser session.
+function loadBookingUploads(bookingNumber){
+  if(!state.settings.appsScriptUrl || !bookingNumber) return Promise.resolve();
+  bookingUploadsLoading = true;
+  renderBookingUploadsList();
+  var sep = state.settings.appsScriptUrl.indexOf('?') === -1 ? '?' : '&';
+  var url = state.settings.appsScriptUrl + sep + 'bookingNumber=' + encodeURIComponent(bookingNumber);
+  return fetch(url).then(function(res){
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    return res.json();
+  }).then(function(data){
+    bookingUploadsLoading = false;
+    if(!activeBooking || activeBooking.bookingNumber !== bookingNumber) return;
+    bookingUploads = Array.isArray(data.uploads) ? data.uploads : [];
+    renderBookingUploadsList();
+  }).catch(function(){
+    bookingUploadsLoading = false;
+    if(activeBooking && activeBooking.bookingNumber === bookingNumber) renderBookingUploadsList();
   });
 }
 
@@ -565,10 +672,12 @@ function renderBookingDetail(el){
       (b.remarks ? '<div class="detail-row"><span class="detail-label">Remarks</span><span class="detail-value">' + escapeHtml(b.remarks) + '</span></div>' : '') +
       '<div class="field-group" style="margin-top:14px;margin-bottom:0;"><label class="field-label">Additional comments</label><textarea id="uploadComments" class="field-input" rows="3" placeholder="Optional note for this upload"></textarea></div>' +
     '</div>' +
+    '<div class="card"><h3 class="card-title">Documents on file<span id="bookingUploadsCount"></span></h3><div class="upload-list" id="bookingUploadsList"></div></div>' +
     '<div class="card">' +
       '<div class="upload-actions">' +
         '<button type="button" class="upload-btn" data-action="take-photo">' + uploadIconSVG() + 'Take Photo</button>' +
-        '<button type="button" class="upload-btn" data-action="choose-file">' + fileIconSVG() + 'Choose File</button>' +
+        '<button type="button" class="upload-btn" data-action="choose-file">' + fileIconSVG() + 'Choose Photos</button>' +
+        '<button type="button" class="upload-btn" data-action="choose-doc">' + fileIconSVG() + 'Choose Document</button>' +
       '</div>' +
       '<h3 class="card-title">Ready to upload</h3><div class="upload-list" id="pendingFilesList"></div>' +
       '<button type="button" class="btn-primary" id="uploadSubmitBtn" data-action="submit-uploads" style="width:100%;margin-top:12px;">Submit</button>' +
@@ -577,6 +686,24 @@ function renderBookingDetail(el){
 
   renderPendingList();
   renderSessionUploads();
+  renderBookingUploadsList();
+}
+// Shows documents already on file for this booking (fetched from the
+// Sheet), independent of anything uploaded in the current session — this
+// is what stays visible after leaving and coming back, or reloading.
+function renderBookingUploadsList(){
+  var el = document.getElementById('bookingUploadsList');
+  var countEl = document.getElementById('bookingUploadsCount');
+  if(!el) return;
+  if(countEl) countEl.textContent = bookingUploads.length ? (' (' + bookingUploads.length + ')') : '';
+  if(bookingUploadsLoading){ el.innerHTML = '<p class="empty-hint">Checking what\'s already been uploaded…</p>'; return; }
+  el.innerHTML = bookingUploads.length ? bookingUploads.map(function(u){
+    var meta = (u.uploadedBy ? 'by ' + u.uploadedBy : '') + (u.uploadedBy && u.uploadedAt ? ' · ' : '') + (u.uploadedAt || '');
+    return '<div class="upload-row"><span class="name">' + escapeHtml(u.fileName) + '</span>' +
+      (u.fileUrl ? '<a class="view-link" href="' + escapeHtml(u.fileUrl) + '" target="_blank" rel="noopener">View</a>' : '') +
+      (meta ? '<span class="upload-meta">' + escapeHtml(meta) + '</span>' : '') +
+      '</div>';
+  }).join('') : '<p class="empty-hint">No documents uploaded for this booking yet.</p>';
 }
 function renderPendingList(){
   var listEl = document.getElementById('pendingFilesList');
@@ -584,7 +711,7 @@ function renderPendingList(){
   if(!listEl || !btn) return;
   listEl.innerHTML = pendingFiles.length ? pendingFiles.map(function(p){
     return '<div class="upload-row"><span class="name">' + escapeHtml(p.file.name) + '</span><a class="view-link" href="' + p.previewUrl + '" target="_blank" rel="noopener">View</a><button type="button" class="remove-pending-btn" data-action="remove-pending" data-id="' + p.id + '">Remove</button></div>';
-  }).join('') : '<p class="empty-hint">Nothing selected yet — tap Take Photo or Choose File above.</p>';
+  }).join('') : '<p class="empty-hint">Nothing selected yet — tap Take Photo, Choose Photos, or Choose Document above.</p>';
   btn.disabled = pendingFiles.length === 0;
   btn.textContent = pendingFiles.length ? ('Submit ' + pendingFiles.length + ' file' + (pendingFiles.length > 1 ? 's' : '')) : 'Submit';
 }
@@ -592,10 +719,11 @@ function renderSessionUploads(){
   var el = document.getElementById('sessionUploadsList');
   if(!el) return;
   el.innerHTML = sessionUploads.length ? sessionUploads.map(function(u){
-    var cls = u.status === 'done' ? 'done' : (u.status === 'failed' ? 'failed' : 'uploading');
-    var label = u.status === 'done' ? 'Uploaded' : (u.status === 'failed' ? 'Failed' : 'Uploading…');
+    var cls = u.status === 'done' ? 'done' : (u.status === 'failed' ? 'failed' : (u.status === 'removing' ? 'uploading' : 'uploading'));
+    var label = u.status === 'done' ? 'Uploaded' : (u.status === 'failed' ? 'Failed' : (u.status === 'removing' ? 'Removing…' : 'Uploading…'));
     var viewLink = (u.status === 'done' && u.url) ? '<a class="view-link" href="' + escapeHtml(u.url) + '" target="_blank" rel="noopener">View</a>' : '';
-    return '<div class="upload-row"><span class="name">' + escapeHtml(u.name) + '</span>' + viewLink + '<span class="upload-status ' + cls + '">' + label + '</span></div>';
+    var removeBtn = (u.status === 'done' || u.status === 'failed') ? '<button type="button" class="remove-pending-btn" data-action="remove-uploaded" data-id="' + u.id + '">Remove</button>' : '';
+    return '<div class="upload-row"><span class="name">' + escapeHtml(u.name) + '</span>' + viewLink + '<span class="upload-status ' + cls + '">' + label + '</span>' + removeBtn + '</div>';
   }).join('') : '<p class="empty-hint">Nothing uploaded yet this session.</p>';
 }
 
@@ -659,6 +787,35 @@ function removePendingFile(id){
   pendingFiles = pendingFiles.filter(function(p){ return p.id !== id; });
   renderPendingList();
 }
+// Removes an already-uploaded file: if it made it to Drive (status 'done'),
+// asks the backend to trash it and drop its log row first; a 'failed' entry
+// has nothing on Drive to clean up, so it's just dropped from the list.
+function removeUploadedFile(id){
+  var entry = sessionUploads.find(function(u){ return u.id === id; });
+  if(!entry) return;
+  if(entry.status !== 'done' || !entry.url){
+    sessionUploads = sessionUploads.filter(function(u){ return u.id !== id; });
+    renderSessionUploads();
+    return;
+  }
+  entry.status = 'removing';
+  renderSessionUploads();
+  fetch(state.settings.appsScriptUrl, {
+    method:'POST',
+    headers:{ 'Content-Type':'text/plain;charset=utf-8' },
+    body: JSON.stringify({ action:'deleteUpload', fileUrl: entry.url })
+  }).then(function(res){ return res.json(); }).then(function(result){
+    if(result && result.error) throw new Error(result.error);
+    sessionUploads = sessionUploads.filter(function(u){ return u.id !== id; });
+    renderSessionUploads();
+    toast('Removed');
+    if(activeBooking) loadBookingUploads(activeBooking.bookingNumber);
+  }).catch(function(){
+    entry.status = 'done';
+    renderSessionUploads();
+    toast('Could not remove — try again');
+  });
+}
 function uploadOneFile(file, meta){
   return fileToBase64(file).then(function(base64){
     return fetch(state.settings.appsScriptUrl, {
@@ -686,6 +843,9 @@ function submitUploads(){
   var managerName = state.settings.managerName || '';
   if(!managerName){ toast('Set your name in Settings first'); return; }
   if(pendingFiles.length === 0){ toast('Add at least one file first'); return; }
+  var confirmMsg = 'Upload ' + pendingFiles.length + ' file' + (pendingFiles.length > 1 ? 's' : '') +
+    ' for booking #' + activeBooking.bookingNumber + ' (' + (activeBooking.guestName || 'guest') + ')?';
+  if(!confirm(confirmMsg)) return;
   var commentsInput = document.getElementById('uploadComments');
   var comments = commentsInput ? commentsInput.value.trim() : '';
 
@@ -699,7 +859,7 @@ function submitUploads(){
   setConnStatus('syncing');
 
   var entries = toSubmit.map(function(p){
-    var entry = { name: p.file.name, status:'uploading' };
+    var entry = { id: 's' + (++sessionUploadIdCounter), name: p.file.name, status:'uploading' };
     sessionUploads.unshift(entry);
     return { file: p.file, entry: entry };
   });
@@ -720,10 +880,15 @@ function submitUploads(){
   });
   chain.then(function(){
     toSubmit.forEach(function(p){ if(p.previewUrl) URL.revokeObjectURL(p.previewUrl); });
-    var anyFailed = entries.some(function(pair){ return pair.entry.status === 'failed'; });
-    setConnStatus(anyFailed ? 'error' : 'live');
-    toast(anyFailed ? 'Some files failed — try again' : 'Uploaded');
+    var doneCount = entries.filter(function(pair){ return pair.entry.status === 'done'; }).length;
+    var failedCount = entries.length - doneCount;
+    setConnStatus(failedCount ? 'error' : 'live');
+    var msg = failedCount === 0
+      ? (doneCount + ' file' + (doneCount > 1 ? 's' : '') + ' uploaded — view them under "Documents on file"')
+      : (doneCount + ' uploaded, ' + failedCount + ' failed — try the failed ones again');
+    toast(msg);
     renderPendingList();
+    if(activeBooking) loadBookingUploads(activeBooking.bookingNumber);
   });
 }
 
@@ -764,8 +929,21 @@ document.addEventListener('click', function(e){
       if(!state.settings.appsScriptUrl){ toast('Connect in Settings first'); break; }
       document.getElementById('fileInput').click();
       break;
+    case 'choose-doc':
+      if(!state.settings.appsScriptUrl){ toast('Connect in Settings first'); break; }
+      document.getElementById('docInput').click();
+      break;
     case 'remove-pending':
-      removePendingFile(el.dataset.id);
+      var pf = pendingFiles.find(function(p){ return p.id === el.dataset.id; });
+      if(pf && confirm('Remove "' + pf.file.name + '" from this upload?')) removePendingFile(el.dataset.id);
+      break;
+    case 'remove-uploaded':
+      var su = sessionUploads.find(function(u){ return u.id === el.dataset.id; });
+      if(!su) break;
+      var removeMsg = su.status === 'done'
+        ? 'Remove "' + su.name + '"? This deletes it from Drive too.'
+        : 'Remove "' + su.name + '" from the list?';
+      if(confirm(removeMsg)) removeUploadedFile(el.dataset.id);
       break;
     case 'submit-uploads':
       submitUploads();
@@ -775,7 +953,9 @@ document.addEventListener('click', function(e){
       if(b){
         activeBooking = b;
         pendingFiles = [];
+        bookingUploads = [];
         renderBookings();
+        loadBookingUploads(b.bookingNumber);
       }
       break;
     case 'back-to-bookings':
@@ -809,9 +989,14 @@ function init(){
     if(file) addPendingFile(file);
   });
   document.getElementById('fileInput').addEventListener('change', function(e){
-    var file = e.target.files[0];
+    var files = e.target.files;
     e.target.value = '';
-    if(file) addPendingFile(file);
+    for(var i = 0; i < files.length; i++) addPendingFile(files[i]);
+  });
+  document.getElementById('docInput').addEventListener('change', function(e){
+    var files = e.target.files;
+    e.target.value = '';
+    for(var i = 0; i < files.length; i++) addPendingFile(files[i]);
   });
   setConnStatus(state.settings.appsScriptUrl ? 'loading' : 'idle');
   switchTab('bookings');
