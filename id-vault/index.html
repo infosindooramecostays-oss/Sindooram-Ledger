@@ -170,6 +170,21 @@ textarea.field-input{ resize:vertical; min-height:64px; }
 .booking-meta{ font-size:12px; color:var(--text-muted); margin-top:4px; }
 .booking-dates{ font-size:13px; margin-top:7px; font-weight:600; }
 
+.cal-header{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+.cal-nav-btn{ background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); width:34px; height:34px; border-radius:50%; font-size:16px; font-weight:700; cursor:pointer; }
+.cal-nav-btn:hover{ border-color:var(--accent); color:var(--accent); }
+.cal-title{ font-size:15px; font-weight:800; }
+.cal-grid{ display:grid; grid-template-columns:repeat(7,1fr); gap:4px; }
+.cal-weekday{ text-align:center; font-size:10.5px; font-weight:700; color:var(--text-muted); padding:4px 0 8px; }
+.cal-day{ position:relative; aspect-ratio:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; border-radius:12px; font-size:13px; font-weight:600; cursor:pointer; background:var(--surface-2); border:1.5px solid transparent; }
+.cal-day.empty{ visibility:hidden; cursor:default; }
+.cal-day.has-booking{ background:linear-gradient(135deg, rgba(109,94,248,.16), rgba(236,72,153,.16)); color:var(--accent); }
+.cal-day.today{ border-color:var(--accent); }
+.cal-day.selected{ background:linear-gradient(135deg, var(--accent), var(--accent-2)); color:#fff; }
+.cal-dot{ width:5px; height:5px; border-radius:50%; background:var(--accent); }
+.cal-day.selected .cal-dot{ background:#fff; }
+.cal-day-list{ margin-top:16px; }
+
 .bottomnav{
   position:fixed; left:14px; right:14px; bottom:calc(14px + env(safe-area-inset-bottom)); z-index:30;
   display:flex; align-items:center; background:var(--surface); border:1px solid var(--border); border-radius:26px;
@@ -248,6 +263,16 @@ details.card[open] summary::after{ content:'−'; }
 
 <div id="toast"></div>
 
+<div id="confirmOverlay" class="tour-overlay" hidden>
+  <div class="tour-card">
+    <p class="tour-body" id="confirmMessage" style="margin-bottom:20px;"></p>
+    <div class="tour-actions">
+      <button type="button" class="btn-secondary" data-action="confirm-cancel">Cancel</button>
+      <button type="button" class="btn-primary" id="confirmOkBtn" data-action="confirm-yes">Yes</button>
+    </div>
+  </div>
+</div>
+
 <div id="tourOverlay" class="tour-overlay" hidden>
   <div class="tour-card">
     <div class="tour-lang-toggle">
@@ -322,6 +347,15 @@ var APPS_SCRIPT_CODE =
 '  var rows = values.slice(1).filter(function (row) {\n' +
 '    if (row[0] === \'\' || row[0] === null) return false;\n' +
 '    return String(row[col[\'Status\']] || \'\').trim().toLowerCase() === \'confirmed\';\n' +
+'  });\n' +
+'  // Drop bookings that are already over. Uses check-out (falling back to\n' +
+'  // check-in if there\'s no check-out) against "today" in India time —\n' +
+'  // the business\'s timezone — regardless of what timezone this script\n' +
+'  // project happens to be set to.\n' +
+'  var todayIndia = Utilities.formatDate(new Date(), \'Asia/Kolkata\', \'yyyy-MM-dd\');\n' +
+'  rows = rows.filter(function (row) {\n' +
+'    var relevant = cleanText(row[col[\'Check-out\']]) || cleanText(row[col[\'Check-in\']]);\n' +
+'    return !relevant || relevant >= todayIndia;\n' +
 '  });\n' +
 '  // Compare cleaned yyyy-MM-dd strings, not the raw cell values — rows added\n' +
 '  // by an outside automation can store Check-in as a real Date object while\n' +
@@ -493,6 +527,24 @@ function renderTourStep(){
   document.querySelectorAll('.tour-lang-btn').forEach(function(b){ b.classList.toggle('active', b.dataset.lang === tourLang); });
 }
 
+/* ---------- Confirm popup ----------
+   Standalone home-screen web apps on iOS silently swallow window.confirm()
+   (no dialog appears, it just returns undefined) — so a real in-page
+   popup is needed instead of the browser-native one. */
+var confirmResolver = null;
+function showConfirm(message, okLabel){
+  document.getElementById('confirmMessage').textContent = message;
+  document.getElementById('confirmOkBtn').textContent = okLabel || 'Yes';
+  document.getElementById('confirmOverlay').hidden = false;
+  return new Promise(function(resolve){ confirmResolver = resolve; });
+}
+function closeConfirm(result){
+  document.getElementById('confirmOverlay').hidden = true;
+  var resolve = confirmResolver;
+  confirmResolver = null;
+  if(resolve) resolve(result);
+}
+
 /* ---------- State ---------- */
 var state = { settings:{ appsScriptUrl:'', managerName:'' }, bookings:[] };
 var currentTab = 'bookings';
@@ -507,6 +559,7 @@ var bookingUploads = [];
 var bookingUploadsLoading = false;
 var calendarMonth = new Date().getMonth();
 var calendarYear = new Date().getFullYear();
+var calendarSelectedDate = null;
 
 /* ---------- Storage ---------- */
 function loadState(){
@@ -534,6 +587,8 @@ function fmtShort(str){
   if(isNaN(d)) return str;
   return d.toLocaleDateString('en-IN', { day:'2-digit', month:'short' });
 }
+function pad2(n){ return n < 10 ? '0' + n : '' + n; }
+function ymd(y, m, d){ return y + '-' + pad2(m + 1) + '-' + pad2(d); }
 function timeAgo(iso){
   var diff = Date.now() - new Date(iso).getTime();
   var min = Math.floor(diff/60000);
@@ -559,7 +614,7 @@ function switchTab(name){
   document.querySelectorAll('.tab').forEach(function(t){ t.classList.toggle('active', t.id === 'tab-' + name); });
   document.querySelectorAll('.navbtn').forEach(function(b){ b.classList.toggle('active', b.dataset.tab === name); });
   document.getElementById('topbarTitle').textContent = { bookings:'Bookings', calendar:'Calendar', settings:'Settings' }[name];
-  if(name === 'bookings' && state.settings.appsScriptUrl) loadFromSheet(true);
+  if((name === 'bookings' || name === 'calendar') && state.settings.appsScriptUrl) loadFromSheet(true);
   renderCurrentTab();
 }
 function renderCurrentTab(){
@@ -594,7 +649,7 @@ function loadFromSheet(silent){
     cacheLocally();
     lastLoadedAt = Date.now();
     setConnStatus('live');
-    if(currentTab === 'bookings' || currentTab === 'settings') renderCurrentTab();
+    if(currentTab === 'bookings' || currentTab === 'calendar' || currentTab === 'settings') renderCurrentTab();
   }).catch(function(){
     setConnStatus('error');
     if(!silent) toast('Could not reach the Sheet');
@@ -727,6 +782,52 @@ function renderSessionUploads(){
   }).join('') : '<p class="empty-hint">Nothing uploaded yet this session.</p>';
 }
 
+/* ---------- Calendar tab ---------- */
+var MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+function renderCalendar(){
+  var el = document.getElementById('tab-calendar');
+  if(!state.settings.appsScriptUrl){ el.innerHTML = notConnectedHTML(); return; }
+
+  var byDate = {};
+  state.bookings.forEach(function(b){
+    if(!b.checkIn) return;
+    (byDate[b.checkIn] = byDate[b.checkIn] || []).push(b);
+  });
+
+  var today = new Date();
+  var todayStr = ymd(today.getFullYear(), today.getMonth(), today.getDate());
+  var daysInMonth = new Date(calendarYear, calendarMonth + 1, 0).getDate();
+  var startWeekday = new Date(calendarYear, calendarMonth, 1).getDay();
+
+  var cells = '';
+  for(var i = 0; i < startWeekday; i++) cells += '<div class="cal-day empty"></div>';
+  for(var d = 1; d <= daysInMonth; d++){
+    var dateStr = ymd(calendarYear, calendarMonth, d);
+    var has = byDate[dateStr] && byDate[dateStr].length;
+    var cls = 'cal-day' + (has ? ' has-booking' : '') + (dateStr === todayStr ? ' today' : '') + (dateStr === calendarSelectedDate ? ' selected' : '');
+    cells += '<div class="' + cls + '" data-action="cal-pick-day" data-date="' + dateStr + '">' + d + (has ? '<span class="cal-dot"></span>' : '') + '</div>';
+  }
+  var weekdaysHTML = ['S','M','T','W','T','F','S'].map(function(w){ return '<div class="cal-weekday">' + w + '</div>'; }).join('');
+
+  var listHTML = '';
+  if(calendarSelectedDate){
+    var dayBookings = byDate[calendarSelectedDate] || [];
+    listHTML = '<div class="cal-day-list"><h3 class="card-title">Check-ins &mdash; ' + fmtShort(calendarSelectedDate) + '</h3>' +
+      (dayBookings.length ? dayBookings.map(bookingCardHTML).join('') : '<p class="empty-hint">No check-ins this day.</p>') +
+      '</div>';
+  }
+
+  el.innerHTML = '<div class="card">' +
+    '<div class="cal-header">' +
+      '<button type="button" class="cal-nav-btn" data-action="cal-prev" aria-label="Previous month">&lsaquo;</button>' +
+      '<span class="cal-title">' + MONTH_NAMES[calendarMonth] + ' ' + calendarYear + '</span>' +
+      '<button type="button" class="cal-nav-btn" data-action="cal-next" aria-label="Next month">&rsaquo;</button>' +
+    '</div>' +
+    '<div class="cal-grid">' + weekdaysHTML + cells + '</div>' +
+    listHTML +
+  '</div>';
+}
+
 /* ---------- Settings tab ---------- */
 function sheetStatusLabel(){
   if(!state.settings.appsScriptUrl) return 'Not connected yet — paste your Apps Script Web App URL below and tap "Save & connect".';
@@ -845,11 +946,15 @@ function submitUploads(){
   if(pendingFiles.length === 0){ toast('Add at least one file first'); return; }
   var confirmMsg = 'Upload ' + pendingFiles.length + ' file' + (pendingFiles.length > 1 ? 's' : '') +
     ' for booking #' + activeBooking.bookingNumber + ' (' + (activeBooking.guestName || 'guest') + ')?';
-  if(!confirm(confirmMsg)) return;
+  showConfirm(confirmMsg, 'Upload').then(function(ok){
+    if(ok) doSubmitUploads();
+  });
+}
+function doSubmitUploads(){
   var commentsInput = document.getElementById('uploadComments');
   var comments = commentsInput ? commentsInput.value.trim() : '';
 
-  var meta = { bookingNumber: activeBooking.bookingNumber, guestName: activeBooking.guestName || '', checkInDate: activeBooking.checkIn || '', comments: comments, uploadedBy: managerName };
+  var meta = { bookingNumber: activeBooking.bookingNumber, guestName: activeBooking.guestName || '', checkInDate: activeBooking.checkIn || '', comments: comments, uploadedBy: state.settings.managerName || '' };
   var toSubmit = pendingFiles.slice();
   pendingFiles = [];
   renderPendingList();
@@ -935,7 +1040,12 @@ document.addEventListener('click', function(e){
       break;
     case 'remove-pending':
       var pf = pendingFiles.find(function(p){ return p.id === el.dataset.id; });
-      if(pf && confirm('Remove "' + pf.file.name + '" from this upload?')) removePendingFile(el.dataset.id);
+      if(pf){
+        var pid = el.dataset.id;
+        showConfirm('Remove "' + pf.file.name + '" from this upload?', 'Remove').then(function(ok){
+          if(ok) removePendingFile(pid);
+        });
+      }
       break;
     case 'remove-uploaded':
       var su = sessionUploads.find(function(u){ return u.id === el.dataset.id; });
@@ -943,10 +1053,19 @@ document.addEventListener('click', function(e){
       var removeMsg = su.status === 'done'
         ? 'Remove "' + su.name + '"? This deletes it from Drive too.'
         : 'Remove "' + su.name + '" from the list?';
-      if(confirm(removeMsg)) removeUploadedFile(el.dataset.id);
+      var uid = el.dataset.id;
+      showConfirm(removeMsg, 'Remove').then(function(ok){
+        if(ok) removeUploadedFile(uid);
+      });
       break;
     case 'submit-uploads':
       submitUploads();
+      break;
+    case 'confirm-yes':
+      closeConfirm(true);
+      break;
+    case 'confirm-cancel':
+      closeConfirm(false);
       break;
     case 'pick-booking':
       var b = state.bookings.find(function(x){ return x.bookingNumber === el.dataset.number; });
@@ -954,9 +1073,25 @@ document.addEventListener('click', function(e){
         activeBooking = b;
         pendingFiles = [];
         bookingUploads = [];
-        renderBookings();
+        switchTab('bookings');
         loadBookingUploads(b.bookingNumber);
       }
+      break;
+    case 'cal-prev':
+      calendarMonth--;
+      if(calendarMonth < 0){ calendarMonth = 11; calendarYear--; }
+      calendarSelectedDate = null;
+      renderCalendar();
+      break;
+    case 'cal-next':
+      calendarMonth++;
+      if(calendarMonth > 11){ calendarMonth = 0; calendarYear++; }
+      calendarSelectedDate = null;
+      renderCalendar();
+      break;
+    case 'cal-pick-day':
+      calendarSelectedDate = (calendarSelectedDate === el.dataset.date) ? null : el.dataset.date;
+      renderCalendar();
       break;
     case 'back-to-bookings':
       activeBooking = null;

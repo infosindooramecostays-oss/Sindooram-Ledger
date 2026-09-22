@@ -56,6 +56,15 @@ function getRecentBookings() {
     if (row[0] === '' || row[0] === null) return false;
     return String(row[col['Status']] || '').trim().toLowerCase() === 'confirmed';
   });
+  // Drop bookings that are already over. Uses check-out (falling back to
+  // check-in if there's no check-out) against "today" in India time —
+  // the business's timezone — regardless of what timezone this script
+  // project happens to be set to.
+  var todayIndia = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd');
+  rows = rows.filter(function (row) {
+    var relevant = cleanText(row[col['Check-out']]) || cleanText(row[col['Check-in']]);
+    return !relevant || relevant >= todayIndia;
+  });
   // Compare cleaned yyyy-MM-dd strings, not the raw cell values — rows added
   // by an outside automation can store Check-in as a real Date object while
   // rows added through the app store it as force-text ('2026-09-30);
