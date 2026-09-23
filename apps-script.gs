@@ -348,6 +348,12 @@ function buildReceiptPdf(input) {
   var content = getReceiptContent(input);
   var doc = DocumentApp.create('Receipt - ' + input.bookingNumber + ' - ' + input.stage + ' - TEMP');
   var docId = doc.getId();
+  // DocumentApp.create always drops the new Doc in Drive root — move it into
+  // the Payment receipt folder immediately so it never sits visible in root,
+  // even briefly, before it gets trashed below.
+  var tempFile = DriveApp.getFileById(docId);
+  DriveApp.getFolderById(RECEIPTS_FOLDER_ID).addFile(tempFile);
+  DriveApp.getRootFolder().removeFile(tempFile);
   var body = doc.getBody();
   body.setMarginTop(30).setMarginBottom(30).setMarginLeft(40).setMarginRight(40);
 
@@ -574,7 +580,7 @@ function sendPaymentReminders() {
       'The remaining balance of ' + formatMoney(remaining) + ' is due by ' + dueDateStr + ' (one day before check-in).\n\n' +
       'If you have already paid this, please disregard this message. For any questions, reach us on WhatsApp: +91 98460 22350.\n\n' +
       'Looking forward to welcoming you!\n\nRegards,\nTeam Sindooram';
-    MailApp.sendEmail({ to: b.guestEmail, subject: 'Reminder: Balance due for your upcoming stay — ' + b.bookingNumber, body: body });
+    MailApp.sendEmail({ to: b.guestEmail, subject: 'Reminder: Balance due for your upcoming stay — ' + b.bookingNumber, body: body, bcc: 'chinnoos.pr@gmail.com,chandusrinivasan@yahoo.co.in' });
   });
 }
 
@@ -586,6 +592,141 @@ function createReminderTrigger() {
     if (t.getHandlerFunction() === 'sendPaymentReminders') ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('sendPaymentReminders').timeBased().everyDays(1).atHour(9).create();
+}
+
+// Arrival-guide email for Direct bookings checking in tomorrow — check-in
+// details, house rules, and the arrival guide, sent once the day before.
+// Plain text, no attachment. Airbnb bookings are handled through Airbnb's
+// own guest messaging, so this is Direct-only.
+function sendArrivalGuideEmails() {
+  var data = readAll();
+  var tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  var tomorrowStr = Utilities.formatDate(tomorrow, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  data.bookings.forEach(function (b) {
+    if (b.source !== 'Direct') return;
+    if (String(b.checkIn).slice(0, 10) !== tomorrowStr) return;
+    if (!b.guestEmail) return;
+    var checkInLabel = Utilities.formatDate(new Date(b.checkIn + 'T00:00:00'), Session.getScriptTimeZone(), 'd MMM yyyy');
+    var body = 'Hi ' + b.guestName + ',\n\n' +
+      'Booking: ' + b.bookingNumber + '\n\n' +
+      'Looking forward to hosting you tomorrow, ' + checkInLabel + '. A few details for your arrival:\n\n' +
+      'CHECK-IN\n' +
+      '- Check-in from 2:00 PM.\n' +
+      '- You\'ll be looked after by Mr. Mansoor, our property manager — his number is +91 96567 71881. Feel free to reach him directly for anything during your stay.\n' +
+      '- Every adult in your group needs a valid government-approved ID (driving licence, Aadhaar, etc.) — collected at check-in per Tourism Department rules.\n' +
+      '- Let Mansoor know your breakfast preference at check-in; it\'s prepared by Swadish Catering, a local family-run kitchen.\n' +
+      '- WiFi details are shared at check-in, and Mansoor will walk you through the house on arrival.\n\n' +
+      'GETTING HERE\n' +
+      'Sindooram Ecostay, opposite Thakadi Temple, P.O, Edava, Varkala, Kerala 695311\n' +
+      'Maps: https://www.google.com/maps/search/?api=1&query=Sindooram+Ecostay+opposite+Thakadi+Temple+Edava+Varkala+Kerala+695311\n\n' +
+      'HOUSE RULES, BRIEFLY\n' +
+      '- Waste goes in the 3 bins provided (recyclable, non-recyclable, general).\n' +
+      '- Meals and drinks, including alcohol¹, stay in the dining area rather than the bedrooms.\n' +
+      '- Please keep the kitchen clean after use.\n' +
+      '- If you\'re not using a light, fan, or AC, please switch it off.\n' +
+      '- The switch under the TV is shared between the TV, WiFi, and CCTV cameras — please leave it on at all times, even when you\'re not using the TV or WiFi.\n' +
+      '- The villa is smoke-free; there\'s a designated smoking/vaping spot in the backyard.\n' +
+      '- Shoes off at the entrance (poomugham).\n' +
+      '- Rinse sand off at the well area, not in the toilets — sandy clothes get hand-washed there too, not in the machine.\n' +
+      '- Quiet hours after 10 PM.\n' +
+      '- Drugs² are not permitted on the property, no exceptions.\n' +
+      '- Travelling with a pet? They stay in the covered outdoor kennel beside Thira, not inside the villa or common areas.\n\n' +
+      'Legal Compliance\n' +
+      '¹ Selling, serving, or consuming alcohol for anyone under the age of 23 is prohibited in Kerala under the Abkari Act.\n' +
+      '² Possession, sale, or consumption of drugs is prohibited in India for all ages under the NDPS Act.\n\n' +
+      'For more on things to do or places to see, visit https://sindooramecostays.com\n\n' +
+      'Anything before you arrive, WhatsApp us: https://wa.me/919846022350\n\n' +
+      'Warm regards,\nTeam Sindooram';
+    MailApp.sendEmail({ to: b.guestEmail, subject: 'Your stay at Sindooram Ecostay starts tomorrow — arrival details inside', body: body, bcc: 'chinnoos.pr@gmail.com,chandusrinivasan@yahoo.co.in' });
+  });
+}
+
+// Run this once yourself to schedule sendArrivalGuideEmails() daily at
+// 9am, alongside the balance-due reminder. Re-running it is safe — it
+// clears any previous schedule for this function first.
+function createArrivalGuideTrigger() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'sendArrivalGuideEmails') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('sendArrivalGuideEmails').timeBased().everyDays(1).atHour(9).create();
+}
+
+// Pre-checkout email for Direct bookings checking out tomorrow — a "how's
+// the stay been" check-in plus checkout details, sent the day before.
+// Plain text, no attachment. Direct-only, same reasoning as the arrival
+// guide (Airbnb bookings are handled through Airbnb's own messaging).
+function sendPreCheckoutEmails() {
+  var data = readAll();
+  var tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  var tomorrowStr = Utilities.formatDate(tomorrow, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  data.bookings.forEach(function (b) {
+    if (b.source !== 'Direct') return;
+    if (String(b.checkOut).slice(0, 10) !== tomorrowStr) return;
+    if (!b.guestEmail) return;
+    var checkOutLabel = Utilities.formatDate(new Date(b.checkOut + 'T00:00:00'), Session.getScriptTimeZone(), 'd MMM yyyy');
+    var body = 'Hi ' + b.guestName + ',\n\n' +
+      'Booking: ' + b.bookingNumber + '\n\n' +
+      'Hope the stay\'s been a good one so far. You\'re checking out tomorrow, ' + checkOutLabel + ' — a few details for the morning:\n\n' +
+      'CHECK-OUT\n' +
+      '- By 11:00 AM.\n' +
+      '- Leave the keys with Mansoor, or wherever he\'s asked you to.\n\n' +
+      'BEFORE YOU GO\n' +
+      '- Wet clothes/towels (including the thorthu) and anything sandy go in the laundry bag in the kitchen.\n' +
+      '- Carrying wet or sandy clothes home instead? Ask Mansoor for a take-away laundry bag — available on request.\n' +
+      '- Please wash and rack any dishes used.\n' +
+      '- Segregate garbage/kitchen waste into the 3 bins in the kitchen.\n' +
+      '- Turn off AC, fans, and lights in all rooms — except the switch under the TV (shared with WiFi and CCTV), which should stay on.\n\n' +
+      'Anything not quite right, or need anything before you leave — let Mansoor know, or reach us on WhatsApp: https://wa.me/919846022350\n\n' +
+      'Hope you\'ve had a good stay.\n\n' +
+      'Warm regards,\nTeam Sindooram';
+    MailApp.sendEmail({ to: b.guestEmail, subject: 'Checking out tomorrow — a few details', body: body, bcc: 'chinnoos.pr@gmail.com,chandusrinivasan@yahoo.co.in' });
+  });
+}
+
+// Run this once yourself to schedule sendPreCheckoutEmails() daily at 9am,
+// alongside the other reminders. Re-running it is safe — it clears any
+// previous schedule for this function first.
+function createPreCheckoutTrigger() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'sendPreCheckoutEmails') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('sendPreCheckoutEmails').timeBased().everyDays(1).atHour(9).create();
+}
+
+// Feedback email for Direct bookings that checked out yesterday — thanks
+// the guest and asks for a Google review. Direct-only: an Airbnb-booked
+// guest has no Airbnb reservation to attach a review to, so that ask
+// doesn't apply here. Plain text, no attachment.
+function sendFeedbackEmails() {
+  var data = readAll();
+  var yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  var yesterdayStr = Utilities.formatDate(yesterday, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  data.bookings.forEach(function (b) {
+    if (b.source !== 'Direct') return;
+    if (String(b.checkOut).slice(0, 10) !== yesterdayStr) return;
+    if (!b.guestEmail) return;
+    var body = 'Hi ' + b.guestName + ',\n\n' +
+      'Booking: ' + b.bookingNumber + '\n\n' +
+      'Thank you for staying at Sindooram Ecostay — it was a pleasure having you, and we hope you had a good time.\n\n' +
+      'If you enjoyed your stay, the one thing that would mean the world to us is a quick Google review — for a small, family-run place like ours, it genuinely makes a difference: https://g.page/r/CWPQRpdJLtFuEBM/review\n\n' +
+      'We\'d also love to feature your stay on our socials — if you\'re up for it, share a few pictures with us on WhatsApp: https://wa.me/919846022350 (we make stunning reels 😂). And do follow us on Instagram (https://www.instagram.com/sindooramecostay) and Facebook (https://www.facebook.com/share/14roNs3DeBc/) so we can tag you.\n\n' +
+      'If anything wasn\'t quite right, we\'d rather hear it directly — just reply to this email or WhatsApp us.\n\n' +
+      'Warm regards,\nTeam Sindooram';
+    MailApp.sendEmail({ to: b.guestEmail, subject: 'Thank you for staying with us', body: body, bcc: 'chinnoos.pr@gmail.com,chandusrinivasan@yahoo.co.in' });
+  });
+}
+
+// Run this once yourself to schedule sendFeedbackEmails() daily at 9am,
+// alongside the other reminders. Re-running it is safe — it clears any
+// previous schedule for this function first.
+function createFeedbackTrigger() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'sendFeedbackEmails') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('sendFeedbackEmails').timeBased().everyDays(1).atHour(9).create();
 }
 
 // Run this once yourself to sanity-check receipt generation without sending

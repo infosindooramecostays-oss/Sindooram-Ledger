@@ -1059,6 +1059,12 @@ var APPS_SCRIPT_CODE =
 '  var content = getReceiptContent(input);\n' +
 '  var doc = DocumentApp.create(\'Receipt - \' + input.bookingNumber + \' - \' + input.stage + \' - TEMP\');\n' +
 '  var docId = doc.getId();\n' +
+'  // DocumentApp.create always drops the new Doc in Drive root — move it into\n' +
+'  // the Payment receipt folder immediately so it never sits visible in root,\n' +
+'  // even briefly, before it gets trashed below.\n' +
+'  var tempFile = DriveApp.getFileById(docId);\n' +
+'  DriveApp.getFolderById(RECEIPTS_FOLDER_ID).addFile(tempFile);\n' +
+'  DriveApp.getRootFolder().removeFile(tempFile);\n' +
 '  var body = doc.getBody();\n' +
 '  body.setMarginTop(30).setMarginBottom(30).setMarginLeft(40).setMarginRight(40);\n' +
 '\n' +
