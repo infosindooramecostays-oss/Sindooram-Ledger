@@ -620,20 +620,21 @@ function retrySendFailed() {
     var b = bookingsById[row[col['Booking ID']]];
     if (!b || !b.guestEmail) continue; // still not fixed — leave unresolved, try again later
 
+    var isConfirmed = b.source === 'Direct' && (b.status === 'Confirmed-Advance' || b.status === 'Confirmed-Paid');
     var msg = null;
     var emailLabel = row[col['Email Type']];
-    if (emailLabel === 'Balance reminder' && b.source === 'Direct' && b.status === 'Confirmed-Advance') {
+    if (emailLabel === 'Balance reminder' && b.status === 'Confirmed-Advance' && isConfirmed) {
       msg = buildPaymentReminderEmail(ss, b);
-    } else if (emailLabel === 'Arrival guide') {
+    } else if (emailLabel === 'Arrival guide' && isConfirmed) {
       msg = buildArrivalGuideEmail(b);
-    } else if (emailLabel === 'Pre-checkout email') {
+    } else if (emailLabel === 'Pre-checkout email' && isConfirmed) {
       msg = buildPreCheckoutEmail(b);
-    } else if (emailLabel === 'Feedback email') {
+    } else if (emailLabel === 'Feedback email' && isConfirmed) {
       msg = buildFeedbackEmail(b);
     }
-    // Balance reminder with a status that's since moved on (e.g. now
-    // Confirmed-Paid) has nothing left to send — resolved below either way,
-    // since there's nothing more to retry for this row.
+    // A status that's since moved on (e.g. Cancelled, or Confirmed-Paid for
+    // a balance reminder) means there's nothing left to send for this row —
+    // resolved below either way, since there's nothing more to retry.
     if (msg) {
       MailApp.sendEmail({ to: b.guestEmail, subject: msg.subject, body: msg.body, bcc: TEAM_ALERT_EMAILS });
     }
@@ -698,6 +699,7 @@ function sendArrivalGuideEmails() {
   var tomorrowStr = Utilities.formatDate(tomorrow, Session.getScriptTimeZone(), 'yyyy-MM-dd');
   data.bookings.forEach(function (b) {
     if (b.source !== 'Direct') return;
+    if (b.status !== 'Confirmed-Advance' && b.status !== 'Confirmed-Paid') return;
     if (String(b.checkIn).slice(0, 10) !== tomorrowStr) return;
     if (!b.guestEmail) { alertMissingGuestInfo('Arrival guide', b, 'it has no Guest Email'); return; }
     var msg = buildArrivalGuideEmail(b);
@@ -763,6 +765,7 @@ function sendPreCheckoutEmails() {
   var tomorrowStr = Utilities.formatDate(tomorrow, Session.getScriptTimeZone(), 'yyyy-MM-dd');
   data.bookings.forEach(function (b) {
     if (b.source !== 'Direct') return;
+    if (b.status !== 'Confirmed-Advance' && b.status !== 'Confirmed-Paid') return;
     if (String(b.checkOut).slice(0, 10) !== tomorrowStr) return;
     if (!b.guestEmail) { alertMissingGuestInfo('Pre-checkout email', b, 'it has no Guest Email'); return; }
     var msg = buildPreCheckoutEmail(b);
@@ -813,6 +816,7 @@ function sendFeedbackEmails() {
   var yesterdayStr = Utilities.formatDate(yesterday, Session.getScriptTimeZone(), 'yyyy-MM-dd');
   data.bookings.forEach(function (b) {
     if (b.source !== 'Direct') return;
+    if (b.status !== 'Confirmed-Advance' && b.status !== 'Confirmed-Paid') return;
     if (String(b.checkOut).slice(0, 10) !== yesterdayStr) return;
     if (!b.guestEmail) { alertMissingGuestInfo('Feedback email', b, 'it has no Guest Email'); return; }
     var msg = buildFeedbackEmail(b);
