@@ -556,6 +556,91 @@ function latestReceiptForBooking(ss, bookingId, stage) {
   return { amountReceived: last[col['Amount Received']] };
 }
 
+// Team address used for BCC on every scheduled guest email below, and as
+// the direct recipient for the missing-info alert.
+var TEAM_ALERT_EMAILS = 'chinnoos.pr@gmail.com,chandusrinivasan@yahoo.co.in';
+
+// A booking matched one of the scheduled emails below (right source,
+// right status, right date) but is missing something needed to actually
+// send it — most commonly no Guest Email on file. Rather than silently
+// skipping it (the old behavior — the booking would just vanish with no
+// email and no trace), this tells the team directly so someone can add
+// the missing field and, if needed, send it by hand.
+function alertMissingGuestInfo(emailLabel, b, reason) {
+  MailApp.sendEmail({
+    to: TEAM_ALERT_EMAILS,
+    subject: '[Action needed] ' + emailLabel + ' not sent — Booking ' + (b.bookingNumber || '(no number)'),
+    body: 'Booking ' + (b.bookingNumber || '(no number)') + ' (' + (b.guestName || 'unknown guest') + ') matched today\'s ' +
+      emailLabel.toLowerCase() + ', but ' + reason + ', so nothing was sent.\n\n' +
+      'Check-in: ' + (b.checkIn || '—') + '\nCheck-out: ' + (b.checkOut || '—') + '\n\n' +
+      'Fix the booking in the Ledger, then run retrySendFailed() (or wait for it to catch it automatically if you\'ve scheduled it) — no need to resend the whole day\'s batch by hand.'
+  });
+  logFailedSend(emailLabel, b, reason);
+}
+
+// Logs a row to the "Failed Sends" tab for every booking alertMissingGuestInfo
+// fires for, so retrySendFailed() has something targeted to retry later —
+// only this specific booking/email pair, never the whole day's batch (which
+// would risk double-emailing guests who already got theirs).
+function logFailedSend(emailLabel, b, reason) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Failed Sends') || ss.insertSheet('Failed Sends');
+  if (sheet.getLastRow() === 0) {
+    var headers = ['ID', 'Booking ID', 'Booking Number', 'Guest Name', 'Email Type', 'Reason', 'Check-in', 'Check-out', 'Detected At', 'Resolved At'];
+    sheet.appendRow(headers);
+    sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+  }
+  var id = 'fs_' + new Date().getTime().toString(36) + Math.random().toString(36).slice(2, 7);
+  sheet.appendRow([id, b.id, b.bookingNumber || '', b.guestName || '', emailLabel, reason, b.checkIn || '', b.checkOut || '', new Date(), '']);
+  sheet.autoResizeColumns(1, 10);
+}
+
+// Retries every unresolved row in "Failed Sends" — safe to run as often as
+// you like, since it only ever touches the specific booking/email pairs
+// that previously failed and are still unresolved, never bookings that
+// already succeeded. Run this manually (Apps Script editor → select →
+// Run) any time after fixing a booking's missing info.
+function retrySendFailed() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Failed Sends');
+  if (!sheet) { Logger.log('No Failed Sends sheet yet — nothing to retry.'); return; }
+  var values = sheet.getDataRange().getValues();
+  if (values.length < 2) return;
+  var headers = values[0];
+  var col = {};
+  headers.forEach(function (h, i) { col[h] = i; });
+
+  var data = readAll();
+  var bookingsById = {};
+  data.bookings.forEach(function (b) { bookingsById[b.id] = b; });
+
+  for (var i = 1; i < values.length; i++) {
+    var row = values[i];
+    if (row[col['Resolved At']]) continue;
+    var b = bookingsById[row[col['Booking ID']]];
+    if (!b || !b.guestEmail) continue; // still not fixed — leave unresolved, try again later
+
+    var msg = null;
+    var emailLabel = row[col['Email Type']];
+    if (emailLabel === 'Balance reminder' && b.source === 'Direct' && b.status === 'Confirmed-Advance') {
+      msg = buildPaymentReminderEmail(ss, b);
+    } else if (emailLabel === 'Arrival guide') {
+      msg = buildArrivalGuideEmail(b);
+    } else if (emailLabel === 'Pre-checkout email') {
+      msg = buildPreCheckoutEmail(b);
+    } else if (emailLabel === 'Feedback email') {
+      msg = buildFeedbackEmail(b);
+    }
+    // Balance reminder with a status that's since moved on (e.g. now
+    // Confirmed-Paid) has nothing left to send — resolved below either way,
+    // since there's nothing more to retry for this row.
+    if (msg) {
+      MailApp.sendEmail({ to: b.guestEmail, subject: msg.subject, body: msg.body, bcc: TEAM_ALERT_EMAILS });
+    }
+    sheet.getRange(i + 1, col['Resolved At'] + 1).setValue(new Date());
+  }
+}
+
 // Daily reminder for Direct bookings still on Confirmed-Advance (balance
 // outstanding) whose check-in is tomorrow. Plain text, no attachment.
 // Skips anything already Confirmed-Paid — nothing owed, nothing to remind.
@@ -569,19 +654,27 @@ function sendPaymentReminders() {
     if (b.source !== 'Direct') return;
     if (b.status !== 'Confirmed-Advance') return;
     if (String(b.checkIn).slice(0, 10) !== tomorrowStr) return;
-    if (!b.guestEmail) return;
-    var receipt = latestReceiptForBooking(ss, b.id, 'advance');
-    var amountReceived = receipt ? Number(receipt.amountReceived) : (Number(b.amount) || 0) / 2;
-    var remaining = Math.max(0, (Number(b.amount) || 0) - amountReceived);
-    var checkInLabel = Utilities.formatDate(new Date(b.checkIn + 'T00:00:00'), Session.getScriptTimeZone(), 'd MMM yyyy');
-    var dueDateStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'd MMM yyyy');
-    var body = 'Hi ' + b.guestName + ',\n\n' +
-      'Just a friendly reminder — your stay at Sindooram Ecostay (Booking ' + b.bookingNumber + ') checks in tomorrow, ' + checkInLabel + '.\n\n' +
-      'The remaining balance of ' + formatMoney(remaining) + ' is due by ' + dueDateStr + ' (one day before check-in).\n\n' +
-      'If you have already paid this, please disregard this message. For any questions, reach us on WhatsApp: +91 98460 22350.\n\n' +
-      'Looking forward to welcoming you!\n\nRegards,\nTeam Sindooram';
-    MailApp.sendEmail({ to: b.guestEmail, subject: 'Reminder: Balance due for your upcoming stay — ' + b.bookingNumber, body: body, bcc: 'chinnoos.pr@gmail.com,chandusrinivasan@yahoo.co.in' });
+    if (!b.guestEmail) { alertMissingGuestInfo('Balance reminder', b, 'it has no Guest Email'); return; }
+    var msg = buildPaymentReminderEmail(ss, b);
+    MailApp.sendEmail({ to: b.guestEmail, subject: msg.subject, body: msg.body, bcc: TEAM_ALERT_EMAILS });
   });
+}
+
+// Builds the balance-reminder subject/body for one booking — shared by
+// sendPaymentReminders() (the daily scan) and retrySendFailed() (targeted
+// resend), so the wording only lives in one place.
+function buildPaymentReminderEmail(ss, b) {
+  var receipt = latestReceiptForBooking(ss, b.id, 'advance');
+  var amountReceived = receipt ? Number(receipt.amountReceived) : (Number(b.amount) || 0) / 2;
+  var remaining = Math.max(0, (Number(b.amount) || 0) - amountReceived);
+  var checkInLabel = Utilities.formatDate(new Date(b.checkIn + 'T00:00:00'), Session.getScriptTimeZone(), 'd MMM yyyy');
+  var dueDateStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'd MMM yyyy');
+  var body = 'Hi ' + b.guestName + ',\n\n' +
+    'Just a friendly reminder — your stay at Sindooram Ecostay (Booking ' + b.bookingNumber + ') checks in tomorrow, ' + checkInLabel + '.\n\n' +
+    'The remaining balance of ' + formatMoney(remaining) + ' is due by ' + dueDateStr + ' (one day before check-in).\n\n' +
+    'If you have already paid this, please disregard this message. For any questions, reach us on WhatsApp: +91 98460 22350.\n\n' +
+    'Looking forward to welcoming you!\n\nRegards,\nTeam Sindooram';
+  return { subject: 'Reminder: Balance due for your upcoming stay — ' + b.bookingNumber, body: body };
 }
 
 // Run this once yourself (select it above, then click Run) to schedule
@@ -606,7 +699,15 @@ function sendArrivalGuideEmails() {
   data.bookings.forEach(function (b) {
     if (b.source !== 'Direct') return;
     if (String(b.checkIn).slice(0, 10) !== tomorrowStr) return;
-    if (!b.guestEmail) return;
+    if (!b.guestEmail) { alertMissingGuestInfo('Arrival guide', b, 'it has no Guest Email'); return; }
+    var msg = buildArrivalGuideEmail(b);
+    MailApp.sendEmail({ to: b.guestEmail, subject: msg.subject, body: msg.body, bcc: TEAM_ALERT_EMAILS });
+  });
+}
+
+// Builds the arrival-guide subject/body for one booking — shared by
+// sendArrivalGuideEmails() and retrySendFailed().
+function buildArrivalGuideEmail(b) {
     var checkInLabel = Utilities.formatDate(new Date(b.checkIn + 'T00:00:00'), Session.getScriptTimeZone(), 'd MMM yyyy');
     var body = 'Hi ' + b.guestName + ',\n\n' +
       'Booking: ' + b.bookingNumber + '\n\n' +
@@ -638,8 +739,7 @@ function sendArrivalGuideEmails() {
       'For more on things to do or places to see, visit https://sindooramecostays.com\n\n' +
       'Anything before you arrive, WhatsApp us: https://wa.me/919846022350\n\n' +
       'Warm regards,\nTeam Sindooram';
-    MailApp.sendEmail({ to: b.guestEmail, subject: 'Your stay at Sindooram Ecostay starts tomorrow — arrival details inside', body: body, bcc: 'chinnoos.pr@gmail.com,chandusrinivasan@yahoo.co.in' });
-  });
+    return { subject: 'Your stay at Sindooram Ecostay starts tomorrow — arrival details inside', body: body };
 }
 
 // Run this once yourself to schedule sendArrivalGuideEmails() daily at
@@ -664,7 +764,15 @@ function sendPreCheckoutEmails() {
   data.bookings.forEach(function (b) {
     if (b.source !== 'Direct') return;
     if (String(b.checkOut).slice(0, 10) !== tomorrowStr) return;
-    if (!b.guestEmail) return;
+    if (!b.guestEmail) { alertMissingGuestInfo('Pre-checkout email', b, 'it has no Guest Email'); return; }
+    var msg = buildPreCheckoutEmail(b);
+    MailApp.sendEmail({ to: b.guestEmail, subject: msg.subject, body: msg.body, bcc: TEAM_ALERT_EMAILS });
+  });
+}
+
+// Builds the pre-checkout subject/body for one booking — shared by
+// sendPreCheckoutEmails() and retrySendFailed().
+function buildPreCheckoutEmail(b) {
     var checkOutLabel = Utilities.formatDate(new Date(b.checkOut + 'T00:00:00'), Session.getScriptTimeZone(), 'd MMM yyyy');
     var body = 'Hi ' + b.guestName + ',\n\n' +
       'Booking: ' + b.bookingNumber + '\n\n' +
@@ -681,8 +789,7 @@ function sendPreCheckoutEmails() {
       'Anything not quite right, or need anything before you leave — let Mansoor know, or reach us on WhatsApp: https://wa.me/919846022350\n\n' +
       'Hope you\'ve had a good stay.\n\n' +
       'Warm regards,\nTeam Sindooram';
-    MailApp.sendEmail({ to: b.guestEmail, subject: 'Checking out tomorrow — a few details', body: body, bcc: 'chinnoos.pr@gmail.com,chandusrinivasan@yahoo.co.in' });
-  });
+    return { subject: 'Checking out tomorrow — a few details', body: body };
 }
 
 // Run this once yourself to schedule sendPreCheckoutEmails() daily at 9am,
@@ -707,7 +814,15 @@ function sendFeedbackEmails() {
   data.bookings.forEach(function (b) {
     if (b.source !== 'Direct') return;
     if (String(b.checkOut).slice(0, 10) !== yesterdayStr) return;
-    if (!b.guestEmail) return;
+    if (!b.guestEmail) { alertMissingGuestInfo('Feedback email', b, 'it has no Guest Email'); return; }
+    var msg = buildFeedbackEmail(b);
+    MailApp.sendEmail({ to: b.guestEmail, subject: msg.subject, body: msg.body, bcc: TEAM_ALERT_EMAILS });
+  });
+}
+
+// Builds the feedback/review-ask subject/body for one booking — shared by
+// sendFeedbackEmails() and retrySendFailed().
+function buildFeedbackEmail(b) {
     var body = 'Hi ' + b.guestName + ',\n\n' +
       'Booking: ' + b.bookingNumber + '\n\n' +
       'Thank you for staying at Sindooram Ecostay — it was a pleasure having you, and we hope you had a good time.\n\n' +
@@ -715,8 +830,7 @@ function sendFeedbackEmails() {
       'We\'d also love to feature your stay on our socials — if you\'re up for it, share a few pictures with us on WhatsApp: https://wa.me/919846022350 (we make stunning reels 😂). And do follow us on Instagram (https://www.instagram.com/sindooramecostay) and Facebook (https://www.facebook.com/share/14roNs3DeBc/) so we can tag you.\n\n' +
       'If anything wasn\'t quite right, we\'d rather hear it directly — just reply to this email or WhatsApp us.\n\n' +
       'Warm regards,\nTeam Sindooram';
-    MailApp.sendEmail({ to: b.guestEmail, subject: 'Thank you for staying with us', body: body, bcc: 'chinnoos.pr@gmail.com,chandusrinivasan@yahoo.co.in' });
-  });
+    return { subject: 'Thank you for staying with us', body: body };
 }
 
 // Run this once yourself to schedule sendFeedbackEmails() daily at 9am,
