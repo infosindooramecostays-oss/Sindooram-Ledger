@@ -463,6 +463,23 @@ var APPS_SCRIPT_CODE =
 '  if (existing.hasNext()) return existing.next();\n' +
 '  return parent.createFolder(name);\n' +
 '}\n\n' +
+'// One-time fix: this sheet was created with an older header row, before\n' +
+'// the "Comments" column existed in logUpload()\'s write order — so its\n' +
+'// headers still read "Booking ID" / "Booking Type" with no "Comments" at\n' +
+'// all, one column short of what the code has been writing for a while.\n' +
+'// getUploadsForBooking() looks up the column by the exact name "Booking\n' +
+'// Number", which doesn\'t exist under the old headers, so it always came\n' +
+'// back empty for every booking. The data rows themselves are fine (they\n' +
+'// match the current 8-column order); only the header labels were stale.\n' +
+'// Run this once from the Apps Script editor to fix it.\n' +
+'function fixUploadsSheetHeaders() {\n' +
+'  var ss = SpreadsheetApp.openById(LEDGER_SHEET_ID);\n' +
+'  var sheet = ss.getSheetByName(\'ID Vault Uploads\');\n' +
+'  if (!sheet) { Logger.log(\'No "ID Vault Uploads" sheet found — nothing to fix.\'); return; }\n' +
+'  var headers = [\'Booking Number\', \'Guest Name\', \'Check-in\', \'Comments\', \'File Name\', \'Uploaded By\', \'Uploaded At\', \'File Link\'];\n' +
+'  sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight(\'bold\');\n' +
+'  Logger.log(\'Headers fixed — "Documents on file" should now find every booking\\\'s uploads.\');\n' +
+'}\n\n' +
 'function logUpload(bookingNumber, guestName, checkInDate, comments, fileName, uploadedBy, fileUrl) {\n' +
 '  var ss = SpreadsheetApp.openById(LEDGER_SHEET_ID);\n' +
 '  var sheet = ss.getSheetByName(\'ID Vault Uploads\') || ss.insertSheet(\'ID Vault Uploads\');\n' +
