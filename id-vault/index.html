@@ -1015,15 +1015,35 @@ function doSubmitUploads(){
   });
   chain.then(function(){
     toSubmit.forEach(function(p){ if(p.previewUrl) URL.revokeObjectURL(p.previewUrl); });
-    var doneCount = entries.filter(function(pair){ return pair.entry.status === 'done'; }).length;
-    var failedCount = entries.length - doneCount;
-    setConnStatus(failedCount ? 'error' : 'live');
-    var msg = failedCount === 0
-      ? (doneCount + ' file' + (doneCount > 1 ? 's' : '') + ' uploaded — view them under "Documents on file"')
-      : (doneCount + ' uploaded, ' + failedCount + ' failed — try the failed ones again');
-    toast(msg);
-    renderPendingList();
-    if(activeBooking) loadBookingUploads(activeBooking.bookingNumber);
+    var refresh = activeBooking ? loadBookingUploads(activeBooking.bookingNumber) : Promise.resolve();
+    refresh.then(function(){
+      // Apps Script keeps running server-side even if the phone's
+      // connection drops before the response arrives — on a slow/flaky
+      // network a file can genuinely finish saving (and get logged) while
+      // the app only sees a timed-out fetch and has to guess "failed".
+      // Reconcile against what's actually on file (just refreshed above)
+      // before reporting, so a false failure doesn't sit on screen next
+      // to a file that's already safely uploaded.
+      entries.forEach(function(pair){
+        if(pair.entry.status !== 'failed') return;
+        var match = bookingUploads.find(function(u){
+          return u.fileName && u.fileName.indexOf('_' + pair.entry.name) !== -1;
+        });
+        if(match){
+          pair.entry.status = 'done';
+          pair.entry.url = match.fileUrl;
+        }
+      });
+      renderSessionUploads();
+      var doneCount = entries.filter(function(pair){ return pair.entry.status === 'done'; }).length;
+      var failedCount = entries.length - doneCount;
+      setConnStatus(failedCount ? 'error' : 'live');
+      var msg = failedCount === 0
+        ? (doneCount + ' file' + (doneCount > 1 ? 's' : '') + ' uploaded — view them under "Documents on file"')
+        : (doneCount + ' uploaded, ' + failedCount + ' failed — try the failed ones again');
+      toast(msg);
+      renderPendingList();
+    });
   });
 }
 
