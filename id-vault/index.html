@@ -344,29 +344,28 @@ var APPS_SCRIPT_CODE =
 '  var headers = values[0];\n' +
 '  var col = {};\n' +
 '  headers.forEach(function (h, i) { col[h] = i; });\n' +
+'  // Matches \'Confirmed\', \'Confirmed-Advance\', \'Confirmed-Paid\', and any\n' +
+'  // other "Confirmed-..." variant the Ledger uses (or mistypes) — a plain\n' +
+'  // equality check against \'confirmed\' was missing every Direct booking\n' +
+'  // the moment its status moved past the bare "Confirmed" stage, which is\n' +
+'  // exactly when a booking is most likely to need documents uploaded.\n' +
 '  var rows = values.slice(1).filter(function (row) {\n' +
 '    if (row[0] === \'\' || row[0] === null) return false;\n' +
-'    return String(row[col[\'Status\']] || \'\').trim().toLowerCase() === \'confirmed\';\n' +
+'    return String(row[col[\'Status\']] || \'\').trim().toLowerCase().indexOf(\'confirmed\') === 0;\n' +
 '  });\n' +
-'  // Drop bookings that are already over. Uses check-out (falling back to\n' +
-'  // check-in if there\'s no check-out) against "today" in India time —\n' +
-'  // the business\'s timezone — regardless of what timezone this script\n' +
-'  // project happens to be set to.\n' +
-'  var todayIndia = Utilities.formatDate(new Date(), \'Asia/Kolkata\', \'yyyy-MM-dd\');\n' +
-'  rows = rows.filter(function (row) {\n' +
-'    var relevant = cleanText(row[col[\'Check-out\']]) || cleanText(row[col[\'Check-in\']]);\n' +
-'    return !relevant || relevant >= todayIndia;\n' +
-'  });\n' +
+'  // No date filtering here — the calendar needs past, present, and future\n' +
+'  // bookings. Hiding stays-already-over from the upload picker happens on\n' +
+'  // the frontend instead, so the calendar isn\'t starved by the same cutoff.\n' +
 '  // Compare cleaned yyyy-MM-dd strings, not the raw cell values — rows added\n' +
 '  // by an outside automation can store Check-in as a real Date object while\n' +
 '  // rows added through the app store it as force-text (\'2026-09-30);\n' +
 '  // sorting the raw values mixes two incomparable formats and looks random.\n' +
-'  // Sort newest-first to pick the 60 most relevant (recent/upcoming) rows,\n' +
-'  // then flip to chronological order for display.\n' +
+'  // Sort newest-first to pick the 200 most relevant rows, then flip to\n' +
+'  // chronological order for display.\n' +
 '  rows.sort(function (a, b) {\n' +
 '    return cleanText(b[col[\'Check-in\']]).localeCompare(cleanText(a[col[\'Check-in\']]));\n' +
 '  });\n' +
-'  rows = rows.slice(0, 60).reverse();\n' +
+'  rows = rows.slice(0, 200).reverse();\n' +
 '  return rows.map(function (row) {\n' +
 '    return {\n' +
 '      bookingNumber: cleanText(row[col[\'Booking Number\']]),\n' +
@@ -589,6 +588,17 @@ function fmtShort(str){
 }
 function pad2(n){ return n < 10 ? '0' + n : '' + n; }
 function ymd(y, m, d){ return y + '-' + pad2(m + 1) + '-' + pad2(d); }
+// The Bookings tab (document-upload picker) only needs current/upcoming
+// stays — past ones are just clutter there. The Calendar tab wants
+// everything, so it reads state.bookings directly instead of this.
+function upcomingBookings(){
+  var today = new Date();
+  var todayStr = ymd(today.getFullYear(), today.getMonth(), today.getDate());
+  return state.bookings.filter(function(b){
+    var relevant = b.checkOut || b.checkIn;
+    return !relevant || relevant >= todayStr;
+  });
+}
 function timeAgo(iso){
   var diff = Date.now() - new Date(iso).getTime();
   var min = Math.floor(diff/60000);
@@ -708,7 +718,8 @@ function renderBookings(){
   var el = document.getElementById('tab-bookings');
   if(!state.settings.appsScriptUrl){ el.innerHTML = notConnectedHTML(); return; }
   if(activeBooking){ renderBookingDetail(el); return; }
-  var list = state.bookings.length ? state.bookings.map(bookingCardHTML).join('') : '<p class="empty-hint">No bookings found yet.</p>';
+  var bookings = upcomingBookings();
+  var list = bookings.length ? bookings.map(bookingCardHTML).join('') : '<p class="empty-hint">No bookings found yet.</p>';
   el.innerHTML = '<p class="empty-hint" style="margin-bottom:12px;">Tap a booking to upload documents for it.</p><div class="booking-list">' + list + '</div>';
 }
 function renderBookingDetail(el){

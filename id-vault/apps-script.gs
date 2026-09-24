@@ -52,29 +52,28 @@ function getRecentBookings() {
   var headers = values[0];
   var col = {};
   headers.forEach(function (h, i) { col[h] = i; });
+  // Matches 'Confirmed', 'Confirmed-Advance', 'Confirmed-Paid', and any
+  // other "Confirmed-..." variant the Ledger uses (or mistypes) — a plain
+  // equality check against 'confirmed' was missing every Direct booking
+  // the moment its status moved past the bare "Confirmed" stage, which is
+  // exactly when a booking is most likely to need documents uploaded.
   var rows = values.slice(1).filter(function (row) {
     if (row[0] === '' || row[0] === null) return false;
-    return String(row[col['Status']] || '').trim().toLowerCase() === 'confirmed';
+    return String(row[col['Status']] || '').trim().toLowerCase().indexOf('confirmed') === 0;
   });
-  // Drop bookings that are already over. Uses check-out (falling back to
-  // check-in if there's no check-out) against "today" in India time —
-  // the business's timezone — regardless of what timezone this script
-  // project happens to be set to.
-  var todayIndia = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd');
-  rows = rows.filter(function (row) {
-    var relevant = cleanText(row[col['Check-out']]) || cleanText(row[col['Check-in']]);
-    return !relevant || relevant >= todayIndia;
-  });
+  // No date filtering here — the calendar needs past, present, and future
+  // bookings. Hiding stays-already-over from the upload picker happens on
+  // the frontend instead, so the calendar isn't starved by the same cutoff.
   // Compare cleaned yyyy-MM-dd strings, not the raw cell values — rows added
   // by an outside automation can store Check-in as a real Date object while
   // rows added through the app store it as force-text ('2026-09-30);
   // sorting the raw values mixes two incomparable formats and looks random.
-  // Sort newest-first to pick the 60 most relevant (recent/upcoming) rows,
-  // then flip to chronological order for display.
+  // Sort newest-first to pick the 200 most relevant rows, then flip to
+  // chronological order for display.
   rows.sort(function (a, b) {
     return cleanText(b[col['Check-in']]).localeCompare(cleanText(a[col['Check-in']]));
   });
-  rows = rows.slice(0, 60).reverse();
+  rows = rows.slice(0, 200).reverse();
   return rows.map(function (row) {
     return {
       bookingNumber: cleanText(row[col['Booking Number']]),
