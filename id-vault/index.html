@@ -588,6 +588,22 @@ function fmtShort(str){
 }
 function pad2(n){ return n < 10 ? '0' + n : '' + n; }
 function ymd(y, m, d){ return y + '-' + pad2(m + 1) + '-' + pad2(d); }
+// Every yyyy-mm-dd date a stay occupies, check-in through check-out
+// inclusive — used so the calendar marks the whole stay, not just the
+// day the guest arrives.
+function dateRangeStrs(startStr, endStr){
+  var out = [];
+  var start = new Date(startStr + 'T00:00:00');
+  if(isNaN(start)) return out;
+  var end = new Date((endStr || startStr) + 'T00:00:00');
+  if(isNaN(end) || end < start) end = start;
+  var cur = new Date(start);
+  while(cur <= end){
+    out.push(ymd(cur.getFullYear(), cur.getMonth(), cur.getDate()));
+    cur.setDate(cur.getDate() + 1);
+  }
+  return out;
+}
 // The Bookings tab (document-upload picker) only needs current/upcoming
 // stays — past ones are just clutter there. The Calendar tab wants
 // everything, so it reads state.bookings directly instead of this.
@@ -801,7 +817,9 @@ function renderCalendar(){
   var byDate = {};
   state.bookings.forEach(function(b){
     if(!b.checkIn) return;
-    (byDate[b.checkIn] = byDate[b.checkIn] || []).push(b);
+    dateRangeStrs(b.checkIn, b.checkOut).forEach(function(dateStr){
+      (byDate[dateStr] = byDate[dateStr] || []).push(b);
+    });
   });
 
   var today = new Date();
@@ -822,8 +840,8 @@ function renderCalendar(){
   var listHTML = '';
   if(calendarSelectedDate){
     var dayBookings = byDate[calendarSelectedDate] || [];
-    listHTML = '<div class="cal-day-list"><h3 class="card-title">Check-ins &mdash; ' + fmtShort(calendarSelectedDate) + '</h3>' +
-      (dayBookings.length ? dayBookings.map(bookingCardHTML).join('') : '<p class="empty-hint">No check-ins this day.</p>') +
+    listHTML = '<div class="cal-day-list"><h3 class="card-title">Bookings &mdash; ' + fmtShort(calendarSelectedDate) + '</h3>' +
+      (dayBookings.length ? dayBookings.map(bookingCardHTML).join('') : '<p class="empty-hint">No bookings this day.</p>') +
       '</div>';
   }
 
