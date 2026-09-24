@@ -723,9 +723,12 @@ function buildArrivalGuideEmail(b) {
       'GETTING HERE\n' +
       'Sindooram Ecostay, opposite Thakadi Temple, P.O, Edava, Varkala, Kerala 695311\n' +
       'Maps: https://www.google.com/maps/search/?api=1&query=Sindooram+Ecostay+opposite+Thakadi+Temple+Edava+Varkala+Kerala+695311\n\n' +
+      'GETTING AROUND\n' +
+      'Want to rent a scooter for beach hopping? Contact Shiraz at Venad Bike Rentals OPS Pvt Ltd — +91 98956 82274.\n' +
+      'Maps: https://www.google.com/maps/search/?api=1&query=PPRC%2B4Q8,+Bus+Stand+Rd,+Varkala,+Kerala,+695141\n\n' +
       'HOUSE RULES, BRIEFLY\n' +
       '- Waste goes in the 3 bins provided (recyclable, non-recyclable, general).\n' +
-      '- Meals and drinks, including alcohol¹, stay in the dining area rather than the bedrooms.\n' +
+      '- Meals and beverages¹ stay in the dining area rather than the bedrooms.\n' +
       '- Please keep the kitchen clean after use.\n' +
       '- If you\'re not using a light, fan, or AC, please switch it off.\n' +
       '- The switch under the TV is shared between the TV, WiFi, and CCTV cameras — please leave it on at all times, even when you\'re not using the TV or WiFi.\n' +
