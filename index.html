@@ -2382,17 +2382,30 @@ function startPolling(){
     loadFromSheet(true);
   }, POLL_INTERVAL_MS);
 }
+// Refuses to treat a malformed/incomplete Sheet response as "no data" --
+// this is exactly the gap that let a bad response from the Sheet silently
+// wipe both Bookings and Transactions on 2026-09-26. normalizeTransactions/
+// normalizeBookings both default a missing array to [] with nothing to
+// flag that as unusual, so mutateAndSync used to happily merge an edit
+// onto that "empty" base and save it right back, overwriting real data.
+function assertValidSheetData(data, context){
+  if(!data || !Array.isArray(data.transactions) || !Array.isArray(data.bookings)){
+    throw new Error('Sheet response was incomplete (' + context + ') — refusing to proceed to avoid data loss');
+  }
+}
 function mutateAndSync(mutator){
   if(!state.settings.appsScriptUrl){ toast('Connect your Google Sheet in Settings first'); return Promise.reject(new Error('not connected')); }
   isSaving = true;
   setConnStatus('syncing');
   return fetchSheetData().then(function(latest){
+    assertValidSheetData(latest, 'load before save');
     var merged = mutator({
       transactions: normalizeTransactions(latest.transactions),
       bookings: normalizeBookings(latest.bookings)
     });
     return pushSheetData(merged);
   }).then(function(saved){
+    assertValidSheetData(saved, 'save response');
     state.transactions = normalizeTransactions(saved.transactions);
     state.bookings = normalizeBookings(saved.bookings);
     cacheLocally();
@@ -2403,9 +2416,27 @@ function mutateAndSync(mutator){
   }).catch(function(err){
     isSaving = false;
     setConnStatus('error');
-    toast('Could not save — check your connection and try again');
+    toast('Could not save — a backup was downloaded. Check your connection and try again');
+    downloadBackupFile('save failed: ' + (err && err.message ? err.message : err));
     throw err;
   });
+}
+// Emergency safety net: whenever a save fails, immediately hands back a
+// local JSON copy of everything currently held in the app, so an
+// in-progress edit is never lost even if the Sheet round-trip fails.
+function downloadBackupFile(reason){
+  try{
+    var payload = { savedAt: new Date().toISOString(), reason: reason || '', transactions: state.transactions, bookings: state.bookings };
+    var blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'sindooram-ledger-backup-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 2000);
+  }catch(e){}
 }
 
 /* ---------- Settings actions ---------- */
