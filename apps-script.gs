@@ -20,9 +20,45 @@ function doPost(e) {
     catch (err) { return jsonResponse({ error: String(err.message || err) }); }
   }
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  writeTransactions(ss, data.transactions || []);
-  writeBookings(ss, data.bookings || []);
+  var incomingTransactions = data.transactions || [];
+  var incomingBookings = data.bookings || [];
+  // The app never has a "delete everything" feature — removals always take
+  // out one row at a time, so a genuine save should never send back a
+  // fully empty list for a sheet that currently has real data. Confirmed
+  // live on 2026-09-26: a client somehow synced with empty local state and
+  // this path silently wiped both sheets down to just their headers, with
+  // no confirmation and no trace — recovered only via Sheets version
+  // history. Refuse the write instead of repeating that.
+  guardAgainstEmptyOverwrite(ss, 'Transactions', incomingTransactions);
+  guardAgainstEmptyOverwrite(ss, 'Bookings', incomingBookings);
+  writeTransactions(ss, incomingTransactions);
+  writeBookings(ss, incomingBookings);
   return jsonResponse(readAll());
+}
+
+// Throws (uncaught, on purpose) if asked to overwrite a sheet that
+// currently has real data with an empty list — see the note in doPost()
+// above for why. Throwing here means the client's fetch sees a failed
+// request and falls into its existing "Could not save" error handling,
+// rather than the request quietly succeeding with an empty result (the
+// app has no code path today that inspects a JSON {error: ...} body from
+// this endpoint, so returning one instead of throwing would be treated as
+// a successful, empty save — exactly the failure mode this exists to
+// prevent). Also emails the team, since a legitimate save should never
+// hit this — it means something upstream failed silently.
+function guardAgainstEmptyOverwrite(ss, sheetName, incomingRows) {
+  if (incomingRows.length > 0) return;
+  var sheet = ss.getSheetByName(sheetName);
+  if (!sheet) return;
+  if (sheet.getLastRow() <= 1) return; // already empty — nothing to lose
+  MailApp.sendEmail({
+    to: TEAM_ALERT_EMAILS,
+    subject: '[Blocked] A save tried to wipe the "' + sheetName + '" sheet',
+    body: 'A save request tried to overwrite "' + sheetName + '" — which currently has ' + (sheet.getLastRow() - 1) + ' row(s) of real data — with an empty list.\n\n' +
+      'This has been blocked automatically. Nothing was changed in the Sheet.\n\n' +
+      'This should never happen during normal use (the app only ever removes one row at a time, never all of them). It most likely means someone\'s copy of the app failed to load data properly before it tried to save. Ask them to reload the app and check their connection before saving again.'
+  });
+  throw new Error('Refused to save — "' + sheetName + '" currently has data, but this save would have wiped it. Nothing was changed. Reload the app and try again.');
 }
 
 // Reads both sheets and returns them as plain JS objects/arrays.
