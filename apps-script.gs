@@ -31,9 +31,36 @@ function doPost(e) {
   // history. Refuse the write instead of repeating that.
   guardAgainstEmptyOverwrite(ss, 'Transactions', incomingTransactions);
   guardAgainstEmptyOverwrite(ss, 'Bookings', incomingBookings);
+  assertDirectBookingsComplete(incomingBookings);
   writeTransactions(ss, incomingTransactions);
   writeBookings(ss, incomingBookings);
   return jsonResponse(readAll());
+}
+
+// The app's own form already requires these fields for every Direct
+// booking via HTML "required" attributes — but that only protects saves
+// made through the app's UI. A booking written straight to this endpoint
+// (an automation, a manual API call) skips that entirely. This is the
+// same rule enforced server-side, so it can't be bypassed that way either.
+// Scoped to Confirmed/Confirmed-Advance/Confirmed-Paid specifically,
+// matching what these statuses actually mean (only Direct bookings use
+// them) — NOT every Direct booking regardless of status, since that would
+// retroactively break saves on older Direct rows that are Pending,
+// Cancelled, etc. and were never required to be complete.
+var CONFIRMED_STATUSES = ['Confirmed', 'Confirmed-Advance', 'Confirmed-Paid'];
+function assertDirectBookingsComplete(bookings) {
+  var requiredFields = ['bookingNumber', 'guestName', 'guestEmail', 'checkIn', 'checkOut', 'amount', 'guests'];
+  bookings.forEach(function (b) {
+    if (b.source !== 'Direct') return;
+    if (CONFIRMED_STATUSES.indexOf(b.status) === -1) return;
+    var missing = requiredFields.filter(function (field) {
+      var v = b[field];
+      return v === undefined || v === null || String(v).trim() === '';
+    });
+    if (missing.length) {
+      throw new Error('Booking ' + (b.bookingNumber || b.guestName || b.id) + ' is missing required field(s) for a ' + b.status + ' Direct booking: ' + missing.join(', '));
+    }
+  });
 }
 
 // Throws (uncaught, on purpose) if asked to overwrite a sheet that
