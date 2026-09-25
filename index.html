@@ -692,7 +692,7 @@ details.card summary:hover{ color:var(--accent); }
 'use strict';
 
 /* ---------- Constants ---------- */
-var LS_KEYS = { settings:'sr_settings_v1', cache:'sr_cache_v1' };
+var LS_KEYS = { settings:'sr_settings_v1', cache:'sr_cache_v1', uiState:'sr_uistate_v1' };
 var EXPENSE_CATEGORIES = ['Operational Expenses','Maintenance','Property Upgrades','Digital Promotions'];
 var INCOME_CATEGORIES = ['Booking Revenue','Other Income'];
 var BOOKING_SOURCES = ['Direct','Airbnb','Booking.com','MakeMyTrip','Other'];
@@ -1374,6 +1374,27 @@ function cacheLocally(){
   try{ localStorage.setItem(LS_KEYS.cache, JSON.stringify({ transactions: state.transactions, bookings: state.bookings })); }catch(e){}
 }
 
+// iOS standalone PWAs get killed and silently reloaded the moment they're
+// backgrounded for long enough (switching to Contacts to copy a number,
+// say) — far more aggressively than a normal browser tab. That reload
+// re-runs init() from scratch, which used to always land on the Dashboard
+// with every modal closed, even mid-edit. Persisting "where was I" here
+// and restoring it in init() means coming back lands back on the same
+// tab, and reopens the same booking/transaction if one was open.
+function loadUiState(){
+  try{ return JSON.parse(localStorage.getItem(LS_KEYS.uiState)) || {}; }catch(e){ return {}; }
+}
+function saveUiState(){
+  var s = { tab: currentTab };
+  if(bookingModalOverlay && bookingModalOverlay.classList.contains('open') && bookingIdInput.value){
+    s.bookingId = bookingIdInput.value;
+  }
+  if(txnModalOverlay && txnModalOverlay.classList.contains('open') && txnId.value){
+    s.txnId = txnId.value;
+  }
+  try{ localStorage.setItem(LS_KEYS.uiState, JSON.stringify(s)); }catch(e){}
+}
+
 /* ---------- Utils ---------- */
 function uid(prefix){ return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 function escapeHtml(str){
@@ -1820,6 +1841,7 @@ function switchTab(name){
   document.getElementById('topbarTitle').textContent = { dashboard:'Dashboard', bookings:'Bookings', calendar:'Calendar', settings:'Settings' }[name];
   document.getElementById('fabAdd').classList.toggle('is-hidden', name === 'settings' || name === 'calendar');
   renderCurrentTab();
+  saveUiState();
 }
 function renderCurrentTab(){
   if(currentTab === 'dashboard') renderDashboard();
@@ -2211,6 +2233,7 @@ function openTxnModal(id){
   txnDeleteBtn.style.display = t ? 'inline-block' : 'none';
   txnId.value = id || '';
   showModal(txnModalOverlay);
+  saveUiState();
 }
 function deleteTxn(id){
   if(!confirm('Delete this entry? This cannot be undone.')) return;
@@ -2258,6 +2281,7 @@ function openBookingModal(id){
   receiptSentInfo.style.display = 'none';
   onBookingSourceChange();
   showModal(bookingModalOverlay);
+  saveUiState();
 }
 function renameBookingStatusPrompt(){
   var current = getComboValue(bookingStatusSel, bookingStatusOther);
@@ -2289,7 +2313,11 @@ function deleteBooking(id){
 
 /* ---------- Modal helpers ---------- */
 function showModal(overlay){ overlay.classList.add('open'); document.body.style.overflow = 'hidden'; }
-function hideModal(overlay){ overlay.classList.remove('open'); document.body.style.overflow = ''; }
+function hideModal(overlay){
+  overlay.classList.remove('open');
+  document.body.style.overflow = '';
+  if(overlay === bookingModalOverlay || overlay === txnModalOverlay) saveUiState();
+}
 
 /* ---------- Sheet I/O ---------- */
 function normalizeTransactions(list){
@@ -2589,7 +2617,7 @@ function previewReceipt(){
     amountReceived: parseFloat(receiptAmountReceived.value) || 0,
     receivedDate: receiptReceivedDate.value,
     rateIncludes: receiptRateIncludes.value.trim(),
-    sentBy: bookingAddedByInput.value.trim() || state.settings.userName || 'Unknown'
+    sentBy: state.settings.userName || bookingAddedByInput.value.trim() || 'Unknown'
   };
   receiptPreviewStatus.textContent = 'Generating…';
   receiptPreviewStatus.style.display = 'block';
@@ -2822,10 +2850,20 @@ function init(){
   });
 
   setConnStatus(state.settings.appsScriptUrl ? 'loading' : 'idle');
-  switchTab('dashboard');
+  var savedUiState = loadUiState();
+  switchTab(savedUiState.tab && document.getElementById('tab-' + savedUiState.tab) ? savedUiState.tab : 'dashboard');
+  function restorePendingModal(){
+    if(savedUiState.bookingId && state.bookings.some(function(b){ return b.id === savedUiState.bookingId; })){
+      openBookingModal(savedUiState.bookingId);
+    } else if(savedUiState.txnId && state.transactions.some(function(t){ return t.id === savedUiState.txnId; })){
+      openTxnModal(savedUiState.txnId);
+    }
+  }
   if(state.settings.appsScriptUrl){
-    loadFromSheet(false);
+    loadFromSheet(false).then(restorePendingModal);
     startPolling();
+  } else {
+    restorePendingModal();
   }
 }
 
