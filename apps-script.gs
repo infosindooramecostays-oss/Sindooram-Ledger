@@ -19,6 +19,10 @@ function doPost(e) {
     try { return jsonResponse(handleSendReceipt(data)); }
     catch (err) { return jsonResponse({ error: String(err.message || err) }); }
   }
+  if (data.action === 'getReceiptInfo') {
+    try { return jsonResponse({ receipt: latestReceiptSentInfo(SpreadsheetApp.getActiveSpreadsheet(), data.bookingId) }); }
+    catch (err) { return jsonResponse({ error: String(err.message || err) }); }
+  }
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var incomingTransactions = data.transactions || [];
   var incomingBookings = data.bookings || [];
@@ -587,20 +591,39 @@ function handleSendReceipt(data) {
   var receiptsFolder = DriveApp.getFolderById(RECEIPTS_FOLDER_ID);
   var bookingFolder = getOrCreateFolder(receiptsFolder, input.bookingNumber);
   var savedFile = bookingFolder.createFile(pdfBlob);
-  logReceipt(ss, input, savedFile.getUrl());
+  logReceipt(ss, input, savedFile.getUrl(), String(data.sentBy || '').trim());
   return { status: 'sent' };
 }
 
-function logReceipt(ss, input, fileUrl) {
+// Writes columns by header NAME, not fixed position — self-healing if the
+// sheet already exists from before 'Sent By' was added (appends the header
+// once, then every write since lines up under it), same lesson as the
+// ID Vault "stale headers" bug: a fixed-position appendRow() silently goes
+// out of sync the moment the header row and the code's write order drift.
+function logReceipt(ss, input, fileUrl, sentBy) {
   var sheet = ss.getSheetByName('Receipts') || ss.insertSheet('Receipts');
+  var baseHeaders = ['ID', 'Booking ID', 'Booking Number', 'Guest Name', 'Guest Email', 'Stage', 'Amount Received', 'Total Amount', 'Received Date', 'Rate Includes', 'Check-in', 'Check-out', 'Guests', 'Sent At', 'Sent By', 'PDF Link'];
   if (sheet.getLastRow() === 0) {
-    var headers = ['ID', 'Booking ID', 'Booking Number', 'Guest Name', 'Guest Email', 'Stage', 'Amount Received', 'Total Amount', 'Received Date', 'Rate Includes', 'Check-in', 'Check-out', 'Guests', 'Sent At', 'PDF Link'];
-    sheet.appendRow(headers);
-    sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+    sheet.appendRow(baseHeaders);
+    sheet.getRange(1, 1, 1, baseHeaders.length).setFontWeight('bold');
+  }
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  if (headers.indexOf('Sent By') === -1) {
+    sheet.getRange(1, headers.length + 1, 1, 1).setValue('Sent By').setFontWeight('bold');
+    headers = headers.concat(['Sent By']);
   }
   var id = 'rc_' + new Date().getTime().toString(36) + Math.random().toString(36).slice(2, 7);
-  sheet.appendRow([id, input.bookingId, input.bookingNumber, input.guestName, input.guestEmail, input.stage, input.amountReceived, input.totalAmount, input.receivedDate, input.rateIncludes, input.checkIn, input.checkOut, input.guests, new Date(), fileUrl]);
-  sheet.autoResizeColumns(1, 15);
+  var values = {
+    'ID': id, 'Booking ID': input.bookingId, 'Booking Number': input.bookingNumber,
+    'Guest Name': input.guestName, 'Guest Email': input.guestEmail, 'Stage': input.stage,
+    'Amount Received': input.amountReceived, 'Total Amount': input.totalAmount,
+    'Received Date': input.receivedDate, 'Rate Includes': input.rateIncludes,
+    'Check-in': input.checkIn, 'Check-out': input.checkOut, 'Guests': input.guests,
+    'Sent At': new Date(), 'Sent By': sentBy || '', 'PDF Link': fileUrl
+  };
+  var row = headers.map(function (h) { return values[h] !== undefined ? values[h] : ''; });
+  sheet.getRange(sheet.getLastRow() + 1, 1, 1, row.length).setValues([row]);
+  sheet.autoResizeColumns(1, headers.length);
 }
 
 function latestReceiptForBooking(ss, bookingId, stage) {
@@ -617,6 +640,30 @@ function latestReceiptForBooking(ss, bookingId, stage) {
   if (!matches.length) return null;
   var last = matches[matches.length - 1];
   return { amountReceived: last[col['Amount Received']] };
+}
+
+// Powers the "already sent by X on Y" notice in the app — lets a second
+// person opening the same booking see a receipt went out before they
+// double-send one. Any stage counts (advance or paid), most recent wins.
+function latestReceiptSentInfo(ss, bookingId) {
+  var sheet = ss.getSheetByName('Receipts');
+  if (!sheet) return null;
+  var values = sheet.getDataRange().getValues();
+  if (values.length < 2) return null;
+  var headers = values[0];
+  var col = {};
+  headers.forEach(function (h, i) { col[h] = i; });
+  var matches = values.slice(1).filter(function (row) {
+    return row[col['Booking ID']] === bookingId;
+  });
+  if (!matches.length) return null;
+  var last = matches[matches.length - 1];
+  var sentAt = last[col['Sent At']];
+  return {
+    stage: last[col['Stage']],
+    sentBy: col['Sent By'] !== undefined ? String(last[col['Sent By']] || '') : '',
+    sentAt: sentAt instanceof Date ? sentAt.toISOString() : String(sentAt || '')
+  };
 }
 
 // Team address used for BCC on every scheduled guest email below, and as

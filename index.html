@@ -600,6 +600,7 @@ details.card summary:hover{ color:var(--accent); }
 
       <div class="field-group" id="receiptSection" style="display:none;border-top:1px solid var(--border);padding-top:14px;margin-top:4px;">
         <label class="field-label">Payment receipt <span class="field-optional">Direct bookings only</span></label>
+        <div id="receiptSentInfo" style="font-size:12px;color:var(--text-muted);margin:-4px 0 10px;display:none;"></div>
         <div class="field-row">
           <div class="field-group">
             <label class="field-label">Amount received</label>
@@ -2253,6 +2254,8 @@ function openBookingModal(id){
   receiptAmountReceived.value = defaultReceiptAmount() || '';
   receiptReceivedDate.value = todayStr();
   receiptRateIncludes.value = 'Breakfast from our set menu';
+  receiptSentInfoLoadedFor = null;
+  receiptSentInfo.style.display = 'none';
   onBookingSourceChange();
   showModal(bookingModalOverlay);
 }
@@ -2490,15 +2493,47 @@ function copyScript(){
 }
 
 /* ---------- Payment receipts (Confirmed-Advance / Confirmed-Paid, Direct only) ---------- */
-var receiptSection, previewReceiptBtn, receiptAmountReceived, receiptReceivedDate, receiptRateIncludes;
+var receiptSection, receiptSentInfo, previewReceiptBtn, receiptAmountReceived, receiptReceivedDate, receiptRateIncludes;
 var receiptPreviewOverlay, receiptPdfOverlay, receiptPdfFrame, viewReceiptPdfBtn, receiptPreviewStatus, receiptEmailTo, receiptEmailSubject, receiptEmailBody, sendReceiptBtn;
 var receiptLastPayload = null;
 function receiptEligible(){
   var status = getComboValue(bookingStatusSel, bookingStatusOther);
   return bookingSourceSel.value === 'Direct' && (status === 'Confirmed-Advance' || status === 'Confirmed-Paid');
 }
+// Mirrors the backend's own stage logic in findBookingInput() — kept in
+// sync so the optimistic "just sent" banner shows the same stage label
+// the Sheet will actually log.
+function receiptStatusStage(){
+  return getComboValue(bookingStatusSel, bookingStatusOther) === 'Confirmed-Paid' ? 'paid' : 'advance';
+}
+var receiptSentInfoLoadedFor = null;
 function updateReceiptSectionVisibility(){
-  receiptSection.style.display = (receiptEligible() && bookingIdInput.value) ? 'block' : 'none';
+  var visible = receiptEligible() && bookingIdInput.value;
+  receiptSection.style.display = visible ? 'block' : 'none';
+  if(visible && bookingIdInput.value !== receiptSentInfoLoadedFor){
+    loadReceiptSentInfo(bookingIdInput.value);
+  }
+}
+// Shows who already sent a receipt for this booking and when, so a second
+// person opening the same booking doesn't email the guest a duplicate.
+// Purely informational — doesn't block sending, since a genuine resend
+// (corrected amount, guest asked again) is still sometimes needed.
+function loadReceiptSentInfo(bookingId){
+  receiptSentInfoLoadedFor = bookingId;
+  receiptSentInfo.style.display = 'none';
+  if(!state.settings.appsScriptUrl) return;
+  postAction({ action:'getReceiptInfo', bookingId: bookingId }).then(function(res){
+    if(bookingIdInput.value !== bookingId) return;
+    if(res.error || !res.receipt) return;
+    showReceiptSentInfo(res.receipt);
+  }).catch(function(){});
+}
+function showReceiptSentInfo(receipt){
+  var stageLabel = receipt.stage === 'paid' ? 'Full-payment' : 'Advance';
+  var when = receipt.sentAt ? new Date(receipt.sentAt).toLocaleString('en-IN', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }) : '';
+  var who = receipt.sentBy ? receipt.sentBy : 'someone';
+  receiptSentInfo.textContent = stageLabel + ' receipt already sent by ' + who + (when ? ' on ' + when : '') + '.';
+  receiptSentInfo.style.display = 'block';
 }
 // Direct bookings go through the receipt/email flow, which needs these
 // fields — OTA/automation-imported bookings (Airbnb, Booking.com) stay
@@ -2553,7 +2588,8 @@ function previewReceipt(){
     bookingId: bookingIdInput.value,
     amountReceived: parseFloat(receiptAmountReceived.value) || 0,
     receivedDate: receiptReceivedDate.value,
-    rateIncludes: receiptRateIncludes.value.trim()
+    rateIncludes: receiptRateIncludes.value.trim(),
+    sentBy: bookingAddedByInput.value.trim() || state.settings.userName || 'Unknown'
   };
   receiptPreviewStatus.textContent = 'Generating…';
   receiptPreviewStatus.style.display = 'block';
@@ -2587,6 +2623,7 @@ function sendReceiptNow(){
   postAction(Object.assign({}, receiptLastPayload, { action:'sendReceipt' })).then(function(res){
     if(res.error) throw new Error(res.error);
     toast('Receipt sent');
+    showReceiptSentInfo({ stage: receiptStatusStage(), sentBy: receiptLastPayload.sentBy, sentAt: new Date().toISOString() });
     hideModal(receiptPreviewOverlay);
   }).catch(function(err){
     toast('Could not send: ' + err.message);
@@ -2695,6 +2732,7 @@ function init(){
   wireCombo(bookingStatusSel, bookingStatusOther, onBookingStatusChange);
 
   receiptSection = document.getElementById('receiptSection');
+  receiptSentInfo = document.getElementById('receiptSentInfo');
   receiptAmountReceived = document.getElementById('receiptAmountReceived');
   receiptReceivedDate = document.getElementById('receiptReceivedDate');
   receiptRateIncludes = document.getElementById('receiptRateIncludes');
