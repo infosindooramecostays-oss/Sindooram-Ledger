@@ -709,7 +709,7 @@ var LS_KEYS = { settings:'sr_settings_v1', cache:'sr_cache_v1', uiState:'sr_uist
 // Sheet response carries the version the backend THINKS it's running,
 // and this flags a mismatch loudly instead of relying on someone
 // correctly reading a deployments UI.
-var EXPECTED_SCRIPT_VERSION = '2026-09-26-2';
+var EXPECTED_SCRIPT_VERSION = '2026-09-26-3';
 function checkScriptVersion(data){
   var banner = document.getElementById('staleBackendBanner');
   if(!banner || !data) return;

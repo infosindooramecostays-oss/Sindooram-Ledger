@@ -23,9 +23,25 @@ function doPost(e) {
     try { return jsonResponse({ receipt: latestReceiptSentInfo(SpreadsheetApp.getActiveSpreadsheet(), data.bookingId) }); }
     catch (err) { return jsonResponse({ error: String(err.message || err) }); }
   }
+  // Everything above this point is an action with no transactions/bookings
+  // of its own — a receipt request, a report send, etc. Reaching here with
+  // an action this deployed version doesn't recognize (the exact way a
+  // stale deployment causes damage: a newly-added action like
+  // 'getReceiptInfo' hits an OLDER doPost that has no branch for it) used
+  // to silently fall through to `data.transactions || []` — quietly
+  // treating "these fields aren't here because this wasn't a save at all"
+  // as "here's an empty replacement for everything you have". That's what
+  // caused the 2026-09-26 5:36-5:38am wipe (and, we now believe, the
+  // original one too) — both traced back to a receipt click. Requiring
+  // both fields to genuinely be arrays closes that off for good: an
+  // unrecognized action now fails loudly instead of wiping anything,
+  // regardless of which version of this file is actually deployed.
+  if (!Array.isArray(data.transactions) || !Array.isArray(data.bookings)) {
+    throw new Error('Unrecognized request: action "' + data.action + '" was not matched, and no transactions/bookings arrays were sent. Refusing to touch the Sheet — this deployment may be out of date.');
+  }
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var incomingTransactions = data.transactions || [];
-  var incomingBookings = data.bookings || [];
+  var incomingTransactions = data.transactions;
+  var incomingBookings = data.bookings;
   // The app never has a "delete everything" feature — removals always take
   // out one row at a time, so a genuine save should never send back a
   // fully empty list for a sheet that currently has real data. Confirmed
@@ -101,7 +117,7 @@ function guardAgainstEmptyOverwrite(ss, sheetName, incomingRows) {
 // stick. Sending this back on every response is what lets the app (and
 // anyone checking) tell definitively whether a redeploy actually took
 // effect, instead of trusting the deployments UI alone.
-var SCRIPT_VERSION = '2026-09-26-2';
+var SCRIPT_VERSION = '2026-09-26-3';
 
 // Reads both sheets and returns them as plain JS objects/arrays.
 function readAll() {
