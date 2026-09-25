@@ -92,13 +92,25 @@ function guardAgainstEmptyOverwrite(ss, sheetName, incomingRows) {
   throw new Error('Refused to save — "' + sheetName + '" currently has data, but this save would have wiped it. Nothing was changed. Reload the app and try again.');
 }
 
+// Bump this any time doGet/doPost or anything they call changes, together
+// with the matching EXPECTED_SCRIPT_VERSION constant in index.html. A
+// second data wipe (2026-09-26, 5:36-5:38am) traced back to the Web App
+// silently still running an OLD deployed version -- one that predated the
+// empty-overwrite guard entirely, so the guard never actually ran, and
+// Manage Deployments gives no obvious warning when a redeploy didn't
+// stick. Sending this back on every response is what lets the app (and
+// anyone checking) tell definitively whether a redeploy actually took
+// effect, instead of trusting the deployments UI alone.
+var SCRIPT_VERSION = '2026-09-26-2';
+
 // Reads both sheets and returns them as plain JS objects/arrays.
 function readAll() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   backfillMissingBookingIds(ss);
   return {
     transactions: readSheet(ss, 'Transactions', ['id','type','date','category','subcategory','description','amount','addedBy','recurrence','createdAt','updatedAt','endsOn']),
-    bookings: readSheet(ss, 'Bookings', ['id','bookingNumber','guestName','guestEmail','guestPhone','checkIn','checkOut','source','amount','status','remarks','addedBy','createdAt','updatedAt','guests'])
+    bookings: readSheet(ss, 'Bookings', ['id','bookingNumber','guestName','guestEmail','guestPhone','checkIn','checkOut','source','amount','status','remarks','addedBy','createdAt','updatedAt','guests']),
+    scriptVersion: SCRIPT_VERSION
   };
 }
 

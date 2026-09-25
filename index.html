@@ -345,6 +345,7 @@ label{ display:block; font-size:13px; color:var(--text-secondary); margin-bottom
 .btn-danger{ background:none; border:0; color:var(--critical); font-weight:600; font-size:13.5px; padding:8px 6px; cursor:pointer; }
 .btn-danger:hover{ text-decoration:underline; }
 .sync-status{ font-size:12.5px; color:var(--text-muted); margin-top:10px; }
+.stale-backend-banner{ background:var(--critical); color:#fff; font-size:12.5px; font-weight:600; text-align:center; padding:8px 14px; }
 
 details.card summary{ cursor:pointer; font-weight:700; font-size:14px; list-style:none; }
 details.card summary::-webkit-details-marker{ display:none; }
@@ -428,6 +429,10 @@ details.card summary:hover{ color:var(--accent); }
   <div class="topbar-title" id="topbarTitle">Dashboard</div>
   <button type="button" class="conn-status" id="connStatus" data-action="refresh-now" aria-label="Tap to refresh"><span class="conn-dot conn-dot-off"></span>Not connected</button>
 </header>
+
+<div id="staleBackendBanner" class="stale-backend-banner" style="display:none;">
+  &#9888; Backend script is out of date &mdash; someone needs to redeploy it (Apps Script &rarr; Deploy &rarr; Manage deployments &rarr; New version). Saving is riskier until this is done.
+</div>
 
 <main id="app">
 
@@ -695,6 +700,24 @@ details.card summary:hover{ color:var(--accent); }
 
 /* ---------- Constants ---------- */
 var LS_KEYS = { settings:'sr_settings_v1', cache:'sr_cache_v1', uiState:'sr_uistate_v1' };
+// Bump this any time apps-script.gs changes, together with the matching
+// SCRIPT_VERSION constant there. A second wipe (2026-09-26, 5:36-5:38am)
+// traced back to the Web App silently still running an OLD deployed
+// version — one that predated the empty-overwrite guard entirely, so the
+// guard never actually ran. Manage Deployments' version list gives no
+// obvious warning when this happens, so this checks it directly: every
+// Sheet response carries the version the backend THINKS it's running,
+// and this flags a mismatch loudly instead of relying on someone
+// correctly reading a deployments UI.
+var EXPECTED_SCRIPT_VERSION = '2026-09-26-2';
+function checkScriptVersion(data){
+  var banner = document.getElementById('staleBackendBanner');
+  if(!banner || !data) return;
+  var live = data.scriptVersion;
+  // Missing entirely (an even older deployment than this check itself)
+  // counts as stale too, not just a mismatched value.
+  banner.style.display = (live !== EXPECTED_SCRIPT_VERSION) ? 'block' : 'none';
+}
 var EXPENSE_CATEGORIES = ['Operational Expenses','Maintenance','Property Upgrades','Digital Promotions'];
 var INCOME_CATEGORIES = ['Booking Revenue','Other Income'];
 var BOOKING_SOURCES = ['Direct','Airbnb','Booking.com','MakeMyTrip','Other'];
@@ -2399,6 +2422,7 @@ function loadFromSheet(silent){
   if(!state.settings.appsScriptUrl){ setConnStatus('idle'); renderCurrentTab(); return Promise.resolve(); }
   if(!silent) setConnStatus('loading');
   return fetchSheetData().then(function(data){
+    checkScriptVersion(data);
     state.transactions = normalizeTransactions(data.transactions);
     state.bookings = normalizeBookings(data.bookings);
     cacheLocally();
@@ -2436,6 +2460,7 @@ function mutateAndSync(mutator){
   setConnStatus('syncing');
   return fetchSheetData().then(function(latest){
     assertValidSheetData(latest, 'load before save');
+    checkScriptVersion(latest);
     var merged = mutator({
       transactions: normalizeTransactions(latest.transactions),
       bookings: normalizeBookings(latest.bookings)
