@@ -40,10 +40,11 @@ function jsonResponse(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
-// Only what the manager needs to identify a booking — no amount, status,
-// source, or guest contact details are ever read or returned. Status is
-// read only to filter to Confirmed bookings; it's never included in what
-// gets sent back.
+// Only what the manager needs to identify a booking — no amount, exact
+// status, source, or guest contact details are ever read or returned.
+// The one exception is `stage` below: a coarse held/booked flag (never
+// the real status text) so the calendar can show tentative holds in a
+// different color from confirmed stays.
 function getRecentBookings() {
   var sheet = SpreadsheetApp.openById(LEDGER_SHEET_ID).getSheetByName('Bookings');
   if (!sheet) return [];
@@ -57,9 +58,12 @@ function getRecentBookings() {
   // equality check against 'confirmed' was missing every Direct booking
   // the moment its status moved past the bare "Confirmed" stage, which is
   // exactly when a booking is most likely to need documents uploaded.
+  // 'Dates Held' also shows here now, so a tentative hold is visible (and
+  // ready for documents) before it's actually confirmed.
   var rows = values.slice(1).filter(function (row) {
     if (row[0] === '' || row[0] === null) return false;
-    return String(row[col['Status']] || '').trim().toLowerCase().indexOf('confirmed') === 0;
+    var status = String(row[col['Status']] || '').trim().toLowerCase();
+    return status.indexOf('confirmed') === 0 || status === 'dates held';
   });
   // No date filtering here — the calendar needs past, present, and future
   // bookings. Hiding stays-already-over from the upload picker happens on
@@ -75,13 +79,15 @@ function getRecentBookings() {
   });
   rows = rows.slice(0, 200).reverse();
   return rows.map(function (row) {
+    var status = String(row[col['Status']] || '').trim().toLowerCase();
     return {
       bookingNumber: cleanText(row[col['Booking Number']]),
       guestName: cleanText(row[col['Guest']]),
       checkIn: cleanText(row[col['Check-in']]),
       checkOut: cleanText(row[col['Check-out']]),
       remarks: cleanText(row[col['Remarks']]),
-      guests: cleanText(row[col['Guests']])
+      guests: cleanText(row[col['Guests']]),
+      stage: status === 'dates held' ? 'held' : 'booked'
     };
   });
 }

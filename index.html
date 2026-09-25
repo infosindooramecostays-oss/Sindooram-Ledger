@@ -261,6 +261,8 @@ input:focus, select:focus{ outline:none; border-color:var(--accent); box-shadow:
 .cal-day{ position:relative; aspect-ratio:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; border-radius:12px; font-size:13px; font-weight:600; cursor:pointer; background:var(--surface-2); border:1.5px solid transparent; }
 .cal-day.empty{ visibility:hidden; cursor:default; }
 .cal-day.has-booking{ background:linear-gradient(135deg, rgba(109,94,248,.16), rgba(236,72,153,.16)); color:var(--accent); }
+.cal-day.dates-held{ background:rgba(250,178,25,.22); color:var(--warning); }
+.cal-day.dates-held .cal-dot{ background:var(--warning); }
 .cal-day.today{ border-color:var(--accent); }
 .cal-day.selected{ background:linear-gradient(135deg, var(--accent), var(--accent-2)); color:#fff; }
 .cal-dot{ width:5px; height:5px; border-radius:50%; background:var(--accent); }
@@ -703,7 +705,7 @@ var SUBCATEGORY_PRESETS = {
   'Digital Promotions': ['Social Media Ads','Listing Fees','Website','Photography'],
   'Booking Revenue': ['Direct','Airbnb','Booking.com','MakeMyTrip']
 };
-var BOOKING_STATUSES = ['Confirmed','Confirmed-Advance','Confirmed-Paid','Pending','Completed','Cancelled'];
+var BOOKING_STATUSES = ['Confirmed','Confirmed-Advance','Confirmed-Paid','Dates Held','Pending','Completed','Cancelled'];
 var RECURRENCE_OPTIONS = ['One-off','Weekly','Monthly','Yearly'];
 var GRAN_LABELS = { daily:'Daily', weekly:'Weekly', monthly:'Monthly', ytd:'YTD' };
 var POLL_INTERVAL_MS = 25000;
@@ -1943,9 +1945,9 @@ function renderDashboard(){
 /* ---------- Bookings ---------- */
 function bookingCardHTML(b){
   var nights = nightsBetween(b.checkIn, b.checkOut);
-  var clsMap = { Confirmed:'good', 'Confirmed-Advance':'warning', 'Confirmed-Paid':'good', Pending:'warning', Completed:'neutral', Cancelled:'critical' };
+  var clsMap = { Confirmed:'good', 'Confirmed-Advance':'warning', 'Confirmed-Paid':'good', 'Dates Held':'warning', Pending:'warning', Completed:'neutral', Cancelled:'critical' };
   var cls = clsMap[b.status] || 'neutral';
-  var barColorMap = { Confirmed:'var(--good)', 'Confirmed-Advance':'var(--warning)', 'Confirmed-Paid':'var(--good)', Pending:'var(--warning)', Completed:'var(--text-muted)', Cancelled:'var(--critical)' };
+  var barColorMap = { Confirmed:'var(--good)', 'Confirmed-Advance':'var(--warning)', 'Confirmed-Paid':'var(--good)', 'Dates Held':'var(--warning)', Pending:'var(--warning)', Completed:'var(--text-muted)', Cancelled:'var(--critical)' };
   var barColor = barColorMap[b.status] || 'var(--text-muted)';
   return '<div class="booking-card" data-action="edit-booking" data-id="' + b.id + '" style="border-left:4px solid ' + barColor + ';">' +
     '<div class="booking-card-top"><strong class="booking-guest">' + escapeHtml(b.guestName) + '</strong><span class="badge badge-' + cls + '">' + escapeHtml(b.status) + '</span></div>' +
@@ -2008,9 +2010,13 @@ function renderCalendar(){
   for(var i = 0; i < startWeekday; i++) cells += '<div class="cal-day empty"></div>';
   for(var d = 1; d <= daysInMonth; d++){
     var dateStr = ymd(calendarYear, calendarMonth, d);
-    var has = byDate[dateStr] && byDate[dateStr].length;
-    var cls = 'cal-day' + (has ? ' has-booking' : '') + (dateStr === todayStr ? ' today' : '') + (dateStr === calendarSelectedDate ? ' selected' : '');
-    cells += '<div class="' + cls + '" data-action="cal-pick-day" data-date="' + dateStr + '">' + d + (has ? '<span class="cal-dot"></span>' : '') + '</div>';
+    var dayBookingsForCell = byDate[dateStr] || [];
+    var has = dayBookingsForCell.length;
+    var hasHeld = dayBookingsForCell.some(function(b){ return b.status === 'Dates Held'; });
+    var hasBooked = dayBookingsForCell.some(function(b){ return b.status === 'Confirmed' || b.status === 'Confirmed-Advance' || b.status === 'Confirmed-Paid'; });
+    var dayTitle = hasHeld ? 'Dates Held' : (hasBooked ? 'Booked' : '');
+    var cls = 'cal-day' + (has ? ' has-booking' : '') + (hasHeld ? ' dates-held' : '') + (dateStr === todayStr ? ' today' : '') + (dateStr === calendarSelectedDate ? ' selected' : '');
+    cells += '<div class="' + cls + '" data-action="cal-pick-day" data-date="' + dateStr + '"' + (dayTitle ? ' title="' + dayTitle + '"' : '') + '>' + d + (has ? '<span class="cal-dot"></span>' : '') + '</div>';
   }
   var weekdaysHTML = ['S','M','T','W','T','F','S'].map(function(w){ return '<div class="cal-weekday">' + w + '</div>'; }).join('');
 

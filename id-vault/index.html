@@ -167,6 +167,7 @@ textarea.field-input{ resize:vertical; min-height:64px; }
 .booking-card-top{ display:flex; justify-content:space-between; align-items:center; gap:8px; }
 .booking-guest{ font-size:15px; font-weight:700; }
 .badge{ font-size:11px; padding:3px 9px; border-radius:999px; font-weight:700; flex:none; background:var(--surface-2); color:var(--text-secondary); }
+.badge-held{ background:rgba(250,178,25,.22); color:var(--warning); }
 .booking-meta{ font-size:12px; color:var(--text-muted); margin-top:4px; }
 .booking-dates{ font-size:13px; margin-top:7px; font-weight:600; }
 
@@ -179,6 +180,8 @@ textarea.field-input{ resize:vertical; min-height:64px; }
 .cal-day{ position:relative; aspect-ratio:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; border-radius:12px; font-size:13px; font-weight:600; cursor:pointer; background:var(--surface-2); border:1.5px solid transparent; }
 .cal-day.empty{ visibility:hidden; cursor:default; }
 .cal-day.has-booking{ background:linear-gradient(135deg, rgba(109,94,248,.16), rgba(236,72,153,.16)); color:var(--accent); }
+.cal-day.dates-held{ background:rgba(250,178,25,.22); color:var(--warning); }
+.cal-day.dates-held .cal-dot{ background:var(--warning); }
 .cal-day.today{ border-color:var(--accent); }
 .cal-day.selected{ background:linear-gradient(135deg, var(--accent), var(--accent-2)); color:#fff; }
 .cal-dot{ width:5px; height:5px; border-radius:50%; background:var(--accent); }
@@ -332,10 +335,11 @@ var APPS_SCRIPT_CODE =
 'function jsonResponse(obj) {\n' +
 '  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);\n' +
 '}\n\n' +
-'// Only what the manager needs to identify a booking — no amount, status,\n' +
-'// source, or guest contact details are ever read or returned. Status is\n' +
-'// read only to filter to Confirmed bookings; it\'s never included in what\n' +
-'// gets sent back.\n' +
+'// Only what the manager needs to identify a booking — no amount, exact\n' +
+'// status, source, or guest contact details are ever read or returned.\n' +
+'// The one exception is `stage` below: a coarse held/booked flag (never\n' +
+'// the real status text) so the calendar can show tentative holds in a\n' +
+'// different color from confirmed stays.\n' +
 'function getRecentBookings() {\n' +
 '  var sheet = SpreadsheetApp.openById(LEDGER_SHEET_ID).getSheetByName(\'Bookings\');\n' +
 '  if (!sheet) return [];\n' +
@@ -349,9 +353,12 @@ var APPS_SCRIPT_CODE =
 '  // equality check against \'confirmed\' was missing every Direct booking\n' +
 '  // the moment its status moved past the bare "Confirmed" stage, which is\n' +
 '  // exactly when a booking is most likely to need documents uploaded.\n' +
+'  // \'Dates Held\' also shows here now, so a tentative hold is visible (and\n' +
+'  // ready for documents) before it\'s actually confirmed.\n' +
 '  var rows = values.slice(1).filter(function (row) {\n' +
 '    if (row[0] === \'\' || row[0] === null) return false;\n' +
-'    return String(row[col[\'Status\']] || \'\').trim().toLowerCase().indexOf(\'confirmed\') === 0;\n' +
+'    var status = String(row[col[\'Status\']] || \'\').trim().toLowerCase();\n' +
+'    return status.indexOf(\'confirmed\') === 0 || status === \'dates held\';\n' +
 '  });\n' +
 '  // No date filtering here — the calendar needs past, present, and future\n' +
 '  // bookings. Hiding stays-already-over from the upload picker happens on\n' +
@@ -367,13 +374,15 @@ var APPS_SCRIPT_CODE =
 '  });\n' +
 '  rows = rows.slice(0, 200).reverse();\n' +
 '  return rows.map(function (row) {\n' +
+'    var status = String(row[col[\'Status\']] || \'\').trim().toLowerCase();\n' +
 '    return {\n' +
 '      bookingNumber: cleanText(row[col[\'Booking Number\']]),\n' +
 '      guestName: cleanText(row[col[\'Guest\']]),\n' +
 '      checkIn: cleanText(row[col[\'Check-in\']]),\n' +
 '      checkOut: cleanText(row[col[\'Check-out\']]),\n' +
 '      remarks: cleanText(row[col[\'Remarks\']]),\n' +
-'      guests: cleanText(row[col[\'Guests\']])\n' +
+'      guests: cleanText(row[col[\'Guests\']]),\n' +
+'      stage: status === \'dates held\' ? \'held\' : \'booked\'\n' +
 '    };\n' +
 '  });\n' +
 '}\n\n' +
@@ -743,7 +752,10 @@ function notConnectedHTML(){
 }
 function bookingCardHTML(b){
   return '<div class="booking-card" data-action="pick-booking" data-number="' + escapeHtml(b.bookingNumber) + '">' +
-    '<div class="booking-card-top"><strong class="booking-guest">' + escapeHtml(b.guestName || 'Guest') + '</strong><span class="badge">#' + escapeHtml(b.bookingNumber) + '</span></div>' +
+    '<div class="booking-card-top"><strong class="booking-guest">' + escapeHtml(b.guestName || 'Guest') + '</strong>' +
+      '<span style="display:flex;gap:6px;align-items:center;">' +
+      (b.stage === 'held' ? '<span class="badge badge-held">Dates Held</span>' : '') +
+      '<span class="badge">#' + escapeHtml(b.bookingNumber) + '</span></span></div>' +
     '<div class="booking-dates">' + fmtShort(b.checkIn) + (b.checkOut ? ' → ' + fmtShort(b.checkOut) : '') + (b.guests ? ' &middot; ' + escapeHtml(String(b.guests)) + ' guest' + (String(b.guests)==='1'?'':'s') : '') + '</div>' +
   '</div>';
 }
@@ -848,9 +860,13 @@ function renderCalendar(){
   for(var i = 0; i < startWeekday; i++) cells += '<div class="cal-day empty"></div>';
   for(var d = 1; d <= daysInMonth; d++){
     var dateStr = ymd(calendarYear, calendarMonth, d);
-    var has = byDate[dateStr] && byDate[dateStr].length;
-    var cls = 'cal-day' + (has ? ' has-booking' : '') + (dateStr === todayStr ? ' today' : '') + (dateStr === calendarSelectedDate ? ' selected' : '');
-    cells += '<div class="' + cls + '" data-action="cal-pick-day" data-date="' + dateStr + '">' + d + (has ? '<span class="cal-dot"></span>' : '') + '</div>';
+    var dayBookingsForCell = byDate[dateStr] || [];
+    var has = dayBookingsForCell.length;
+    var hasHeld = dayBookingsForCell.some(function(b){ return b.stage === 'held'; });
+    var hasBooked = dayBookingsForCell.some(function(b){ return b.stage === 'booked'; });
+    var dayTitle = hasHeld ? 'Dates Held' : (hasBooked ? 'Booked' : '');
+    var cls = 'cal-day' + (has ? ' has-booking' : '') + (hasHeld ? ' dates-held' : '') + (dateStr === todayStr ? ' today' : '') + (dateStr === calendarSelectedDate ? ' selected' : '');
+    cells += '<div class="' + cls + '" data-action="cal-pick-day" data-date="' + dateStr + '"' + (dayTitle ? ' title="' + dayTitle + '"' : '') + '>' + d + (has ? '<span class="cal-dot"></span>' : '') + '</div>';
   }
   var weekdaysHTML = ['S','M','T','W','T','F','S'].map(function(w){ return '<div class="cal-weekday">' + w + '</div>'; }).join('');
 
