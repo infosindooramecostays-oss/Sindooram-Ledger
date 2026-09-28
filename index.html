@@ -578,6 +578,7 @@ details.card summary:hover{ color:var(--accent); }
           <input type="date" id="checkOut" class="field-input">
         </div>
       </div>
+      <div id="bookingConflictWarning" style="display:none;background:rgba(208,59,59,.12);color:var(--critical);font-size:12.5px;font-weight:600;padding:8px 10px;border-radius:8px;margin:-4px 0 10px;"></div>
       <div class="field-row" id="bookingSourceStatusRow">
         <div class="field-group">
           <label class="field-label">Source</label>
@@ -2292,7 +2293,33 @@ function deleteTxn(id){
 }
 
 /* ---------- Booking modal ---------- */
-var bookingModalOverlay, bookingForm, bookingIdInput, bookingNumberInput, guestNameInput, guestEmailInput, guestPhoneInput, bookingGuestsInput, checkInInput, checkOutInput, bookingSourceSel, bookingAmountInput, bookingStatusSel, bookingStatusOther, bookingRemarksInput, bookingAddedByInput, bookingDeleteBtn, bookingModalTitle;
+var bookingModalOverlay, bookingForm, bookingIdInput, bookingNumberInput, guestNameInput, guestEmailInput, guestPhoneInput, bookingGuestsInput, checkInInput, checkOutInput, bookingSourceSel, bookingAmountInput, bookingStatusSel, bookingStatusOther, bookingRemarksInput, bookingAddedByInput, bookingDeleteBtn, bookingModalTitle, bookingConflictWarning;
+// Statuses that mean the villa is actually spoken for on a given date --
+// same set the calendar colors red/orange, kept in one place so the two
+// never drift apart.
+var OCCUPIED_STATUSES = ['Confirmed', 'Confirmed-Advance', 'Confirmed-Paid', 'Dates Held'];
+// Advisory only -- never blocks a save, just flags a likely mistake before
+// it's made. Checkout-exclusive, same rule the calendar itself now uses:
+// a new stay checking in the day another one checks out isn't a real
+// overlap (guests are out by 11am, the villa can turn over by 2pm).
+function findBookingConflict(checkIn, checkOut, excludeId){
+  if(!checkIn || !checkOut) return null;
+  return state.bookings.find(function(b){
+    if(b.id === excludeId) return false;
+    if(OCCUPIED_STATUSES.indexOf(b.status) === -1) return false;
+    if(!b.checkIn || !b.checkOut) return false;
+    return checkIn < b.checkOut && b.checkIn < checkOut;
+  }) || null;
+}
+function updateBookingConflictWarning(){
+  var conflict = findBookingConflict(checkInInput.value, checkOutInput.value, bookingIdInput.value);
+  if(conflict){
+    bookingConflictWarning.textContent = '⚠ Overlaps with ' + (conflict.guestName || 'another booking') + '’s stay (' + fmtShort(parseDateOnly(conflict.checkIn)) + ' → ' + fmtShort(parseDateOnly(conflict.checkOut)) + ', ' + conflict.status + ') — double check before saving.';
+    bookingConflictWarning.style.display = 'block';
+  } else {
+    bookingConflictWarning.style.display = 'none';
+  }
+}
 function nextBookingNumber(){
   var year = new Date().getFullYear();
   var prefix = 'SE-' + year + '-';
@@ -2329,6 +2356,7 @@ function openBookingModal(id){
   receiptSentInfoLoadedFor = null;
   receiptSentInfo.style.display = 'none';
   onBookingSourceChange();
+  updateBookingConflictWarning();
   showModal(bookingModalOverlay);
   saveUiState();
 }
@@ -2798,6 +2826,9 @@ function init(){
   bookingGuestsInput = document.getElementById('bookingGuests');
   checkInInput = document.getElementById('checkIn');
   checkOutInput = document.getElementById('checkOut');
+  bookingConflictWarning = document.getElementById('bookingConflictWarning');
+  checkInInput.addEventListener('change', updateBookingConflictWarning);
+  checkOutInput.addEventListener('change', updateBookingConflictWarning);
   bookingSourceSel = document.getElementById('bookingSource');
   bookingAmountInput = document.getElementById('bookingAmount');
   bookingStatusSel = document.getElementById('bookingStatus');
