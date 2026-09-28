@@ -864,9 +864,16 @@ function renderCalendar(){
   for(var d = 1; d <= daysInMonth; d++){
     var dateStr = ymd(calendarYear, calendarMonth, d);
     var dayBookingsForCell = byDate[dateStr] || [];
-    var has = dayBookingsForCell.length;
-    var hasHeld = dayBookingsForCell.some(function(b){ return b.stage === 'held'; });
-    var hasBooked = dayBookingsForCell.some(function(b){ return b.stage === 'booked'; });
+    // For COLORING only, ignore a booking on its checkout-only day --
+    // guests check out by 11am and the villa can take a new booking from
+    // 2pm, so departing-today shouldn't make a day look occupied (unless
+    // that same booking's check-in also happens to be this date). Tapping
+    // the day still lists every booking touching it, checkout included --
+    // dayBookingsForCell (below, for the day list) stays untouched.
+    var colorBookings = dayBookingsForCell.filter(function(b){ return b.checkOut !== dateStr || b.checkIn === dateStr; });
+    var has = colorBookings.length;
+    var hasHeld = colorBookings.some(function(b){ return b.stage === 'held'; });
+    var hasBooked = colorBookings.some(function(b){ return b.stage === 'booked'; });
     // Orange = tentatively held, red = actually booked, green = nothing on
     // file that day.
     var stateCls = hasHeld ? 'dates-held' : hasBooked ? 'confirmed' : (has ? 'has-booking' : 'available');
