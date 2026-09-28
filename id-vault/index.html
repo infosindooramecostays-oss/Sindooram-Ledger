@@ -180,6 +180,9 @@ textarea.field-input{ resize:vertical; min-height:64px; }
 .cal-day{ position:relative; aspect-ratio:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; border-radius:12px; font-size:13px; font-weight:600; cursor:pointer; background:var(--surface-2); border:1.5px solid transparent; }
 .cal-day.empty{ visibility:hidden; cursor:default; }
 .cal-day.has-booking{ background:linear-gradient(135deg, rgba(109,94,248,.16), rgba(236,72,153,.16)); color:var(--accent); }
+.cal-day.available{ background:rgba(12,163,12,.14); color:var(--good); }
+.cal-day.confirmed{ background:rgba(208,59,59,.16); color:var(--critical); }
+.cal-day.confirmed .cal-dot{ background:var(--critical); }
 .cal-day.dates-held{ background:rgba(250,178,25,.22); color:var(--warning); }
 .cal-day.dates-held .cal-dot{ background:var(--warning); }
 .cal-day.today{ border-color:var(--accent); }
@@ -864,8 +867,11 @@ function renderCalendar(){
     var has = dayBookingsForCell.length;
     var hasHeld = dayBookingsForCell.some(function(b){ return b.stage === 'held'; });
     var hasBooked = dayBookingsForCell.some(function(b){ return b.stage === 'booked'; });
-    var dayTitle = hasHeld ? 'Dates Held' : (hasBooked ? 'Booked' : '');
-    var cls = 'cal-day' + (has ? ' has-booking' : '') + (hasHeld ? ' dates-held' : '') + (dateStr === todayStr ? ' today' : '') + (dateStr === calendarSelectedDate ? ' selected' : '');
+    // Orange = tentatively held, red = actually booked, green = nothing on
+    // file that day.
+    var stateCls = hasHeld ? 'dates-held' : hasBooked ? 'confirmed' : (has ? 'has-booking' : 'available');
+    var dayTitle = hasHeld ? 'Dates Held' : hasBooked ? 'Booked' : (has ? '' : 'Available');
+    var cls = 'cal-day ' + stateCls + (dateStr === todayStr ? ' today' : '') + (dateStr === calendarSelectedDate ? ' selected' : '');
     cells += '<div class="' + cls + '" data-action="cal-pick-day" data-date="' + dateStr + '"' + (dayTitle ? ' title="' + dayTitle + '"' : '') + '>' + d + (has ? '<span class="cal-dot"></span>' : '') + '</div>';
   }
   var weekdaysHTML = ['S','M','T','W','T','F','S'].map(function(w){ return '<div class="cal-weekday">' + w + '</div>'; }).join('');
