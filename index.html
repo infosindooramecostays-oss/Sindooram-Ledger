@@ -46,6 +46,7 @@
 
   --good:#0ca30c;
   --warning:#fab219;
+  --inquiry:#e0b400;
   --serious:#ec835a;
   --critical:#d03b3b;
   --success-text:#008a3c;
@@ -264,6 +265,8 @@ input:focus, select:focus{ outline:none; border-color:var(--accent); box-shadow:
 .cal-day.available{ background:rgba(12,163,12,.14); color:var(--good); }
 .cal-day.confirmed{ background:rgba(208,59,59,.16); color:var(--critical); }
 .cal-day.confirmed .cal-dot{ background:var(--critical); }
+.cal-day.inquiry{ background:rgba(224,180,0,.20); color:var(--inquiry); }
+.cal-day.inquiry .cal-dot{ background:var(--inquiry); }
 .cal-day.dates-held{ background:rgba(250,178,25,.22); color:var(--warning); }
 .cal-day.dates-held .cal-dot{ background:var(--warning); }
 .cal-day.today{ border-color:var(--accent); }
@@ -2040,12 +2043,14 @@ function renderCalendar(){
     var has = dayBookingsForCell.length;
     var hasHeld = dayBookingsForCell.some(function(b){ return b.status === 'Dates Held'; });
     var hasConfirmed = dayBookingsForCell.some(function(b){ return b.status === 'Confirmed' || b.status === 'Confirmed-Advance' || b.status === 'Confirmed-Paid'; });
-    // Orange = tentatively held, red = actually booked, green = nothing on
-    // file that day. A day with only a leftover Pending/Completed booking
-    // (neither held nor a confirmed status) keeps the older neutral
-    // has-booking look instead of being colored red or green outright.
-    var stateCls = hasHeld ? 'dates-held' : hasConfirmed ? 'confirmed' : (has ? 'has-booking' : 'available');
-    var dayTitle = hasHeld ? 'Dates Held' : hasConfirmed ? 'Booked' : (has ? '' : 'Available');
+    var hasInquiry = dayBookingsForCell.some(function(b){ return b.status === 'Inquiry'; });
+    // Orange = tentatively held, red = actually booked, yellow = just a
+    // guest inquiry (Airbnb automation-captured, not a real booking yet),
+    // green = nothing on file that day. A day with only a leftover
+    // Pending/Completed booking (none of the above) keeps the older
+    // neutral has-booking look instead of being colored outright.
+    var stateCls = hasHeld ? 'dates-held' : hasConfirmed ? 'confirmed' : hasInquiry ? 'inquiry' : (has ? 'has-booking' : 'available');
+    var dayTitle = hasHeld ? 'Dates Held' : hasConfirmed ? 'Booked' : hasInquiry ? 'Inquiry' : (has ? '' : 'Available');
     var cls = 'cal-day ' + stateCls + (dateStr === todayStr ? ' today' : '') + (dateStr === calendarSelectedDate ? ' selected' : '');
     cells += '<div class="' + cls + '" data-action="cal-pick-day" data-date="' + dateStr + '"' + (dayTitle ? ' title="' + dayTitle + '"' : '') + '>' + d + (has ? '<span class="cal-dot"></span>' : '') + '</div>';
   }
