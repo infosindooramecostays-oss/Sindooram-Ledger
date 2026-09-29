@@ -1569,12 +1569,16 @@ function computePeriodFinancials(range){
     byCat[t.category] = (byCat[t.category] || 0) + amt;
     if(NET_REVENUE_CATEGORIES.indexOf(t.category) !== -1) netExpenses += amt;
   });
-  // Same inclusion rule as the existing Income tile (every booking whose
-  // check-in falls in range, whatever its status) -- unchanged on purpose,
-  // so the breakdown always sums to exactly the same headline Income
-  // figure that's already shown, just split by Source.
+  // Only counts a booking once it's actually Confirmed/Confirmed-Advance/
+  // Confirmed-Paid (same rule syncIncomeForBooking uses to decide whether
+  // to add a real income transaction) -- an Inquiry or Dates Held booking
+  // hasn't had any money change hands yet, so it shouldn't inflate Income
+  // just because a price was typed in. Upgrades (maintenance/renovation
+  // blocks) never count either, regardless of status -- not revenue.
   var income = 0, incomeByCat = {};
   state.bookings.forEach(function(b){
+    if(b.source === 'Upgrades') return;
+    if(INCOME_TRIGGER_STATUSES.indexOf(b.status) === -1) return;
     var d = parseDateOnly(b.checkIn);
     if(d < range.start || d > range.end) return;
     var amt = Number(b.amount) || 0;
