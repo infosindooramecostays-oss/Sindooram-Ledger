@@ -117,14 +117,14 @@ function guardAgainstEmptyOverwrite(ss, sheetName, incomingRows) {
 // stick. Sending this back on every response is what lets the app (and
 // anyone checking) tell definitively whether a redeploy actually took
 // effect, instead of trusting the deployments UI alone.
-var SCRIPT_VERSION = '2026-09-26-3';
+var SCRIPT_VERSION = '2026-09-29-1';
 
 // Reads both sheets and returns them as plain JS objects/arrays.
 function readAll() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   backfillMissingBookingIds(ss);
   return {
-    transactions: readSheet(ss, 'Transactions', ['id','type','date','category','subcategory','description','amount','addedBy','recurrence','createdAt','updatedAt','endsOn']),
+    transactions: readSheet(ss, 'Transactions', ['id','type','date','category','subcategory','description','amount','addedBy','recurrence','createdAt','updatedAt','endsOn','bookingId']),
     bookings: readSheet(ss, 'Bookings', ['id','bookingNumber','guestName','guestEmail','guestPhone','checkIn','checkOut','source','amount','status','remarks','addedBy','createdAt','updatedAt','guests']),
     scriptVersion: SCRIPT_VERSION
   };
@@ -201,11 +201,11 @@ function forceText(value) {
 function writeTransactions(ss, transactions) {
   var sheet = ss.getSheetByName('Transactions') || ss.insertSheet('Transactions');
   sheet.clear();
-  var headers = ['ID', 'Type', 'Date', 'Category', 'Subcategory', 'Description', 'Amount', 'Added By', 'Recurrence', 'Created At', 'Updated At', 'Ends On'];
+  var headers = ['ID', 'Type', 'Date', 'Category', 'Subcategory', 'Description', 'Amount', 'Added By', 'Recurrence', 'Created At', 'Updated At', 'Ends On', 'Booking ID'];
   sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
   if (transactions.length > 0) {
     var rows = transactions.map(function (t) {
-      return [t.id, t.type, forceText(t.date), t.category, t.subcategory || '', t.description || '', t.amount, t.addedBy, t.recurrence || 'One-off', forceText(t.createdAt), forceText(t.updatedAt), forceText(t.endsOn || '')];
+      return [t.id, t.type, forceText(t.date), t.category, t.subcategory || '', t.description || '', t.amount, t.addedBy, t.recurrence || 'One-off', forceText(t.createdAt), forceText(t.updatedAt), forceText(t.endsOn || ''), t.bookingId || ''];
     });
     sheet.getRange(2, 3, rows.length, 1).setNumberFormat('@');
     sheet.getRange(2, 10, rows.length, 3).setNumberFormat('@');

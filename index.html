@@ -267,6 +267,8 @@ input:focus, select:focus{ outline:none; border-color:var(--accent); box-shadow:
 .cal-day.confirmed .cal-dot{ background:var(--critical); }
 .cal-day.inquiry{ background:rgba(224,180,0,.20); color:var(--inquiry); }
 .cal-day.inquiry .cal-dot{ background:var(--inquiry); }
+.cal-day.upgrades{ background:#ffffff; color:#3a3a3a; border-color:var(--text-muted); }
+.cal-day.upgrades .cal-dot{ background:var(--text-muted); }
 .cal-day.dates-held{ background:rgba(250,178,25,.22); color:var(--warning); }
 .cal-day.dates-held .cal-dot{ background:var(--warning); }
 .cal-day.today{ border-color:var(--accent); }
@@ -716,7 +718,7 @@ var LS_KEYS = { settings:'sr_settings_v1', cache:'sr_cache_v1', uiState:'sr_uist
 // Sheet response carries the version the backend THINKS it's running,
 // and this flags a mismatch loudly instead of relying on someone
 // correctly reading a deployments UI.
-var EXPECTED_SCRIPT_VERSION = '2026-09-26-3';
+var EXPECTED_SCRIPT_VERSION = '2026-09-29-1';
 function checkScriptVersion(data){
   var banner = document.getElementById('staleBackendBanner');
   if(!banner || !data) return;
@@ -727,7 +729,7 @@ function checkScriptVersion(data){
 }
 var EXPENSE_CATEGORIES = ['Operational Expenses','Maintenance','Property Upgrades','Digital Promotions'];
 var INCOME_CATEGORIES = ['Booking Revenue','Other Income'];
-var BOOKING_SOURCES = ['Direct','Airbnb','Booking.com','MakeMyTrip','Other'];
+var BOOKING_SOURCES = ['Direct','Airbnb','Booking.com','MakeMyTrip','Other','Upgrades'];
 var SUBCATEGORY_PRESETS = {
   'Operational Expenses': ['Manager Salary','Caretaker Salary','Staff Salary','Electricity Bill','Water Bill','Internet Bill','Property Tax','Insurance','Society/HOA Fees'],
   'Maintenance': ['Repairs','Pool Cleaning','Pest Control','Gardening','Housekeeping Supplies','Plumbing','Electrical Work'],
@@ -2049,16 +2051,19 @@ function renderCalendar(){
     // dayBookingsForCell (below, for the day list) stays untouched.
     var colorBookings = dayBookingsForCell.filter(function(b){ return b.checkOut !== dateStr || b.checkIn === dateStr; });
     var has = colorBookings.length;
+    var hasUpgrade = colorBookings.some(function(b){ return b.source === 'Upgrades'; });
     var hasHeld = colorBookings.some(function(b){ return b.status === 'Dates Held'; });
     var hasConfirmed = colorBookings.some(function(b){ return b.status === 'Confirmed' || b.status === 'Confirmed-Advance' || b.status === 'Confirmed-Paid'; });
     var hasInquiry = colorBookings.some(function(b){ return b.status === 'Inquiry'; });
-    // Orange = tentatively held, red = actually booked, yellow = just a
-    // guest inquiry (Airbnb automation-captured, not a real booking yet),
-    // green = nothing on file that day. A day with only a leftover
-    // Pending/Completed booking (none of the above) keeps the older
-    // neutral has-booking look instead of being colored outright.
-    var stateCls = hasHeld ? 'dates-held' : hasConfirmed ? 'confirmed' : hasInquiry ? 'inquiry' : (has ? 'has-booking' : 'available');
-    var dayTitle = hasHeld ? 'Dates Held' : hasConfirmed ? 'Booked' : hasInquiry ? 'Inquiry' : (has ? '' : 'Available');
+    // White = blocked for maintenance/renovation (source Upgrades, checked
+    // first regardless of status), orange = tentatively held, red =
+    // actually booked, yellow = just a guest inquiry (Airbnb automation-
+    // captured, not a real booking yet), green = nothing on file that
+    // day. A day with only a leftover Pending/Completed booking (none of
+    // the above) keeps the older neutral has-booking look instead of
+    // being colored outright.
+    var stateCls = hasUpgrade ? 'upgrades' : hasHeld ? 'dates-held' : hasConfirmed ? 'confirmed' : hasInquiry ? 'inquiry' : (has ? 'has-booking' : 'available');
+    var dayTitle = hasUpgrade ? 'Maintenance/renovation' : hasHeld ? 'Dates Held' : hasConfirmed ? 'Booked' : hasInquiry ? 'Inquiry' : (has ? '' : 'Available');
     var cls = 'cal-day ' + stateCls + (dateStr === todayStr ? ' today' : '') + (dateStr === calendarSelectedDate ? ' selected' : '');
     cells += '<div class="' + cls + '" data-action="cal-pick-day" data-date="' + dateStr + '"' + (dayTitle ? ' title="' + dayTitle + '"' : '') + '>' + d + (has ? '<span class="cal-dot"></span>' : '') + '</div>';
   }
@@ -2296,8 +2301,45 @@ function deleteTxn(id){
 var bookingModalOverlay, bookingForm, bookingIdInput, bookingNumberInput, guestNameInput, guestEmailInput, guestPhoneInput, bookingGuestsInput, checkInInput, checkOutInput, bookingSourceSel, bookingAmountInput, bookingStatusSel, bookingStatusOther, bookingRemarksInput, bookingAddedByInput, bookingDeleteBtn, bookingModalTitle, bookingConflictWarning;
 // Statuses that mean the villa is actually spoken for on a given date --
 // same set the calendar colors red/orange, kept in one place so the two
-// never drift apart.
+// never drift apart. An 'Upgrades' entry (maintenance/renovation block)
+// counts as occupied regardless of its status -- checked separately,
+// since it isn't part of the Confirmed/Dates Held lifecycle at all.
 var OCCUPIED_STATUSES = ['Confirmed', 'Confirmed-Advance', 'Confirmed-Paid', 'Dates Held'];
+function isOccupyingBooking(b){
+  return b.source === 'Upgrades' || OCCUPIED_STATUSES.indexOf(b.status) !== -1;
+}
+// Only these three actually mean money changed hands -- Dates Held is
+// still tentative, nothing's been paid yet.
+var INCOME_TRIGGER_STATUSES = ['Confirmed', 'Confirmed-Advance', 'Confirmed-Paid'];
+// Adds one income transaction for a booking's exact Amount the FIRST time
+// its status reaches Confirmed/Confirmed-Advance/Confirmed-Paid -- never
+// a second time (matched by bookingId), and never for 'Upgrades' entries
+// (maintenance blocks, not revenue). Per an explicit decision: if a
+// booking later moves OFF a confirmed status (e.g. Cancelled after being
+// paid), this deliberately leaves the income entry alone rather than
+// auto-deleting a financial record -- remove/adjust it by hand if needed.
+function syncIncomeForBooking(transactions, booking){
+  if(booking.source === 'Upgrades') return transactions;
+  if(INCOME_TRIGGER_STATUSES.indexOf(booking.status) === -1) return transactions;
+  var alreadyAdded = transactions.some(function(t){ return t.bookingId === booking.id; });
+  if(alreadyAdded) return transactions;
+  var txn = {
+    id: uid('t_'),
+    type: 'income',
+    date: booking.checkIn,
+    category: 'Booking Revenue',
+    subcategory: '',
+    description: (booking.guestName || 'Guest') + ' — ' + (booking.bookingNumber || booking.id),
+    amount: Number(booking.amount) || 0,
+    addedBy: booking.addedBy || 'Automation',
+    recurrence: 'One-off',
+    endsOn: '',
+    bookingId: booking.id,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+  return transactions.concat([txn]);
+}
 // Advisory only -- never blocks a save, just flags a likely mistake before
 // it's made. Checkout-exclusive, same rule the calendar itself now uses:
 // a new stay checking in the day another one checks out isn't a real
@@ -2306,7 +2348,7 @@ function findBookingConflict(checkIn, checkOut, excludeId){
   if(!checkIn || !checkOut) return null;
   return state.bookings.find(function(b){
     if(b.id === excludeId) return false;
-    if(OCCUPIED_STATUSES.indexOf(b.status) === -1) return false;
+    if(!isOccupyingBooking(b)) return false;
     if(!b.checkIn || !b.checkOut) return false;
     return checkIn < b.checkOut && b.checkIn < checkOut;
   }) || null;
@@ -2314,7 +2356,8 @@ function findBookingConflict(checkIn, checkOut, excludeId){
 function updateBookingConflictWarning(){
   var conflict = findBookingConflict(checkInInput.value, checkOutInput.value, bookingIdInput.value);
   if(conflict){
-    bookingConflictWarning.textContent = '⚠ Overlaps with ' + (conflict.guestName || 'another booking') + '’s stay (' + fmtShort(parseDateOnly(conflict.checkIn)) + ' → ' + fmtShort(parseDateOnly(conflict.checkOut)) + ', ' + conflict.status + ') — double check before saving.';
+    var reason = conflict.source === 'Upgrades' ? 'blocked for maintenance/renovation' : (conflict.guestName || 'another booking') + '’s stay (' + conflict.status + ')';
+    bookingConflictWarning.textContent = '⚠ Overlaps with ' + reason + ', ' + fmtShort(parseDateOnly(conflict.checkIn)) + ' → ' + fmtShort(parseDateOnly(conflict.checkOut)) + ' — double check before saving.';
     bookingConflictWarning.style.display = 'block';
   } else {
     bookingConflictWarning.style.display = 'none';
@@ -2410,6 +2453,11 @@ function normalizeTransactions(list){
       addedBy: t.addedBy || '',
       recurrence: t.recurrence || 'One-off',
       endsOn: String(t.endsOn || '').slice(0,10),
+      // Set only on income entries auto-created from a confirmed booking
+      // (see syncIncomeForBooking) -- lets that logic tell "already added
+      // for this booking" apart from a normal manual entry, so re-saving
+      // an already-confirmed booking never adds a second income row.
+      bookingId: t.bookingId || '',
       createdAt: t.createdAt || new Date().toISOString(),
       updatedAt: t.updatedAt || new Date().toISOString()
     };
@@ -2927,7 +2975,8 @@ function init(){
       var list = latest.bookings.slice();
       var idx = list.findIndex(function(b){ return b.id === id; });
       if(idx >= 0) list[idx] = booking; else list.push(booking);
-      return { transactions: latest.transactions, bookings: list };
+      var transactions = syncIncomeForBooking(latest.transactions, booking);
+      return { transactions: transactions, bookings: list };
     }).then(function(){ toast('Saved'); }).catch(function(){});
   });
 
