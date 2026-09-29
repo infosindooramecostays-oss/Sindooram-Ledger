@@ -750,6 +750,18 @@ var CATEGORY_COLOR = {
   'Booking Revenue':'var(--series-6)',
   'Other Income':'var(--series-7)'
 };
+// Colors for the Income breakdown card, keyed by booking Source -- bookings
+// don't have a "category" the way transactions do, so Source is the
+// natural grouping (also useful on its own: which channel is actually
+// bringing in the money).
+var SOURCE_COLOR = {
+  'Direct':'var(--series-6)',
+  'Airbnb':'var(--series-8)',
+  'Booking.com':'var(--series-1)',
+  'MakeMyTrip':'var(--series-4)',
+  'Other':'var(--series-8)',
+  'Upgrades':'var(--text-muted)'
+};
 // Categories that reduce Net balance. Maintenance, Property Upgrades, and
 // Digital Promotions are still logged, still show in Total Expenses and
 // the category breakdown for audit purposes — they just aren't subtracted
@@ -1557,12 +1569,19 @@ function computePeriodFinancials(range){
     byCat[t.category] = (byCat[t.category] || 0) + amt;
     if(NET_REVENUE_CATEGORIES.indexOf(t.category) !== -1) netExpenses += amt;
   });
-  var income = 0;
+  // Same inclusion rule as the existing Income tile (every booking whose
+  // check-in falls in range, whatever its status) -- unchanged on purpose,
+  // so the breakdown always sums to exactly the same headline Income
+  // figure that's already shown, just split by Source.
+  var income = 0, incomeByCat = {};
   state.bookings.forEach(function(b){
     var d = parseDateOnly(b.checkIn);
-    if(d >= range.start && d <= range.end) income += Number(b.amount) || 0;
+    if(d < range.start || d > range.end) return;
+    var amt = Number(b.amount) || 0;
+    income += amt;
+    incomeByCat[b.source || 'Other'] = (incomeByCat[b.source || 'Other'] || 0) + amt;
   });
-  return { income:income, expenses:expenses, net:income-netExpenses, byCat:byCat };
+  return { income:income, expenses:expenses, net:income-netExpenses, byCat:byCat, incomeByCat:incomeByCat };
 }
 function computeTrendBuckets(gran, count){
   var earliest = null;
@@ -1946,6 +1965,15 @@ function renderDashboard(){
       '<div class="cat-track"><div class="cat-fill" style="width:' + pct + '%;background:' + (CATEGORY_COLOR[cat]||'var(--series-8)') + '"></div></div></div>';
   }).join('') : '<p class="empty-hint">No expenses recorded for this period.</p>';
 
+  var incEntries = Object.keys(summary.incomeByCat).map(function(k){ return [k, summary.incomeByCat[k]]; }).sort(function(a,b){ return b[1]-a[1]; });
+  var maxInc = incEntries.length ? incEntries[0][1] : 0;
+  var incHTML = incEntries.length ? incEntries.map(function(e){
+    var src = e[0], amt = e[1];
+    var pct = maxInc ? (amt/maxInc*100) : 0;
+    return '<div class="cat-row"><div class="cat-row-top"><span>' + escapeHtml(src) + '</span><span>' + money(amt) + '</span></div>' +
+      '<div class="cat-track"><div class="cat-fill" style="width:' + pct + '%;background:' + (SOURCE_COLOR[src]||'var(--series-8)') + '"></div></div></div>';
+  }).join('') : '<p class="empty-hint">No income recorded for this period.</p>';
+
   var trend = getDashboardTrend(range);
   var buckets = trend.buckets;
 
@@ -1966,6 +1994,7 @@ function renderDashboard(){
     '</div>' +
     heroHTML +
     '<div class="stat-grid">' + tiles + '</div>' +
+    '<div class="card" id="incomeBreakdownCard"><h3 class="card-title">Income breakdown</h3>' + incHTML + '</div>' +
     '<div class="card" id="expenseBreakdownCard"><h3 class="card-title">Expense breakdown</h3>' + catHTML + '</div>' +
     '<div class="card" id="trendCard"><h3 class="card-title">' + trend.title + '</h3>' + renderSparkline(buckets) +
       '<div class="spark-labels"><span>' + buckets[0].label + '</span><span>' + buckets[buckets.length-1].label + '</span></div>' +
