@@ -597,7 +597,10 @@ details.card summary:hover{ color:var(--accent); }
         <div class="field-group">
           <div class="field-label-row">
             <label class="field-label">Status</label>
-            <button type="button" class="field-edit-btn" data-action="rename-booking-status" aria-label="Rename status"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></button>
+            <span style="display:flex;gap:4px;">
+              <button type="button" class="field-edit-btn" data-action="add-booking-status" aria-label="Add new status"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></button>
+              <button type="button" class="field-edit-btn" data-action="rename-booking-status" aria-label="Rename status"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></button>
+            </span>
           </div>
           <select id="bookingStatus" class="field-input"></select>
           <input type="text" id="bookingStatusOther" class="field-input field-other-input" placeholder="New status name" style="display:none;">
@@ -2444,6 +2447,23 @@ function openBookingModal(id){
   showModal(bookingModalOverlay);
   saveUiState();
 }
+// Lets a brand-new status get set mid-entry without needing the rest of
+// the booking form filled in first -- purely local, no network call, so
+// it works even while offline or before Guest Email/Amount/etc. are
+// filled in. It only becomes a real option in OTHER bookings' dropdowns
+// once this booking itself is saved (getBookingStatusList() discovers
+// custom statuses by scanning existing bookings, there's no separate
+// status list to write to) -- the toast says so, so that isn't a surprise.
+function addBookingStatusPrompt(){
+  var name = window.prompt('New status name:');
+  name = name ? name.trim() : '';
+  if(!name) return;
+  var list = getBookingStatusList();
+  if(list.indexOf(name) === -1) list = list.concat([name]);
+  setComboValue(bookingStatusSel, bookingStatusOther, name, list, false, false);
+  updateReceiptSectionVisibility();
+  toast('Status set to "' + name + '" — Save this booking to keep it');
+}
 function renameBookingStatusPrompt(){
   var current = getComboValue(bookingStatusSel, bookingStatusOther);
   if(!current){ toast('Pick a status first'); return; }
@@ -2852,6 +2872,7 @@ document.addEventListener('click', function(e){
     case 'delete-txn-from-modal': if(txnId.value){ deleteTxn(txnId.value); hideModal(txnModalOverlay); } break;
     case 'rename-category': renameCategoryPrompt(); break;
     case 'rename-subcategory': renameSubcategoryPrompt(); break;
+    case 'add-booking-status': addBookingStatusPrompt(); break;
     case 'rename-booking-status': renameBookingStatusPrompt(); break;
     case 'set-booking-filter': bookingsFilter = el.dataset.filter; renderBookings(); break;
     case 'cal-prev':
