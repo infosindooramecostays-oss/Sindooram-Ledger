@@ -379,6 +379,8 @@ details.card summary:hover{ color:var(--accent); }
 @media (min-width:560px){ .modal-overlay{ align-items:center; } .modal{ border-radius:26px; box-shadow:0 24px 64px rgba(0,0,0,.4); } }
 .modal-handle{ width:38px; height:4px; border-radius:2px; background:var(--grid); margin:6px auto 12px; }
 .modal-header{ display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; }
+.modal-header-left{ display:flex; flex-direction:column; gap:3px; min-width:0; }
+.modal-conn-status{ font-size:11px; color:var(--text-muted); display:flex; align-items:center; gap:5px; }
 .modal-header h3{ margin:0; font-size:17.5px; font-weight:800; }
 .modal-close{ background:var(--surface-2); border:0; width:32px; height:32px; border-radius:50%; font-size:19px; color:var(--text-muted); cursor:pointer; line-height:1; }
 .modal-close:hover{ background:var(--grid); color:var(--text-primary); }
@@ -483,7 +485,10 @@ details.card summary:hover{ color:var(--accent); }
   <div class="modal">
     <div class="modal-handle"></div>
     <div class="modal-header">
-      <h3 id="txnModalTitle">Add Transaction</h3>
+      <div class="modal-header-left">
+        <h3 id="txnModalTitle">Add Transaction</h3>
+        <span class="modal-conn-status js-modal-conn-status"><span class="conn-dot conn-dot-off"></span>Not connected</span>
+      </div>
       <button class="modal-close" data-action="close-txn-modal" aria-label="Close">&times;</button>
     </div>
     <form id="txnForm">
@@ -545,7 +550,10 @@ details.card summary:hover{ color:var(--accent); }
   <div class="modal">
     <div class="modal-handle"></div>
     <div class="modal-header">
-      <h3 id="bookingModalTitle">Add Booking</h3>
+      <div class="modal-header-left">
+        <h3 id="bookingModalTitle">Add Booking</h3>
+        <span class="modal-conn-status js-modal-conn-status"><span class="conn-dot conn-dot-off"></span>Not connected</span>
+      </div>
       <button class="modal-close" data-action="close-booking-modal" aria-label="Close">&times;</button>
     </div>
     <form id="bookingForm">
@@ -2535,8 +2543,6 @@ function pushSheetData(payload){
 }
 function setConnStatus(status){
   connectionStatus = status;
-  var el = document.getElementById('connStatus');
-  if(!el) return;
   var map = {
     idle:{ cls:'off', text:'Not connected' },
     loading:{ cls:'syncing', text:'Loading…' },
@@ -2545,7 +2551,17 @@ function setConnStatus(status){
     error:{ cls:'error', text:'Offline — showing last saved copy' }
   };
   var m = map[status] || map.idle;
-  el.innerHTML = '<span class="conn-dot conn-dot-' + m.cls + '"></span>' + m.text;
+  var html = '<span class="conn-dot conn-dot-' + m.cls + '"></span>' + m.text;
+  var el = document.getElementById('connStatus');
+  if(el) el.innerHTML = html;
+  // The main header's status dot sits behind the full-screen modal
+  // backdrop and is invisible while a modal is open -- someone opening
+  // the booking/transaction modal had no way to tell if a save would
+  // even go anywhere. Mirrored copies inside each modal's own header
+  // fix that.
+  document.querySelectorAll('.js-modal-conn-status').forEach(function(modalEl){
+    modalEl.innerHTML = html;
+  });
 }
 function loadFromSheet(silent){
   if(!state.settings.appsScriptUrl){ setConnStatus('idle'); renderCurrentTab(); return Promise.resolve(); }
