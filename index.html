@@ -729,7 +729,7 @@ var LS_KEYS = { settings:'sr_settings_v1', cache:'sr_cache_v1', uiState:'sr_uist
 // Sheet response carries the version the backend THINKS it's running,
 // and this flags a mismatch loudly instead of relying on someone
 // correctly reading a deployments UI.
-var EXPECTED_SCRIPT_VERSION = '2026-09-29-1';
+var EXPECTED_SCRIPT_VERSION = '2026-10-14-1';
 function checkScriptVersion(data){
   var banner = document.getElementById('staleBackendBanner');
   if(!banner || !data) return;
@@ -809,19 +809,124 @@ var APPS_SCRIPT_CODE =
 '    try { return jsonResponse(handleSendReceipt(data)); }\n' +
 '    catch (err) { return jsonResponse({ error: String(err.message || err) }); }\n' +
 '  }\n' +
+'  if (data.action === \'getReceiptInfo\') {\n' +
+'    try {\n' +
+'      var receiptSs = SpreadsheetApp.getActiveSpreadsheet();\n' +
+'      return jsonResponse({\n' +
+'        receipt: latestReceiptSentInfo(receiptSs, data.bookingId),\n' +
+'        receipts: receiptsSentForBooking(receiptSs, data.bookingId)\n' +
+'      });\n' +
+'    }\n' +
+'    catch (err) { return jsonResponse({ error: String(err.message || err) }); }\n' +
+'  }\n' +
+'  if (data.action === \'getSentReceiptPdf\') {\n' +
+'    try { return jsonResponse(handleGetSentReceiptPdf(data)); }\n' +
+'    catch (err) { return jsonResponse({ error: String(err.message || err) }); }\n' +
+'  }\n' +
+'  // Everything above this point is an action with no transactions/bookings\n' +
+'  // of its own — a receipt request, a report send, etc. Reaching here with\n' +
+'  // an action this deployed version doesn\'t recognize (the exact way a\n' +
+'  // stale deployment causes damage: a newly-added action like\n' +
+'  // \'getReceiptInfo\' hits an OLDER doPost that has no branch for it) used\n' +
+'  // to silently fall through to `data.transactions || []` — quietly\n' +
+'  // treating "these fields aren\'t here because this wasn\'t a save at all"\n' +
+'  // as "here\'s an empty replacement for everything you have". That\'s what\n' +
+'  // caused the 2026-09-26 5:36-5:38am wipe (and, we now believe, the\n' +
+'  // original one too) — both traced back to a receipt click. Requiring\n' +
+'  // both fields to genuinely be arrays closes that off for good: an\n' +
+'  // unrecognized action now fails loudly instead of wiping anything,\n' +
+'  // regardless of which version of this file is actually deployed.\n' +
+'  if (!Array.isArray(data.transactions) || !Array.isArray(data.bookings)) {\n' +
+'    throw new Error(\'Unrecognized request: action "\' + data.action + \'" was not matched, and no transactions/bookings arrays were sent. Refusing to touch the Sheet — this deployment may be out of date.\');\n' +
+'  }\n' +
 '  var ss = SpreadsheetApp.getActiveSpreadsheet();\n' +
-'  writeTransactions(ss, data.transactions || []);\n' +
-'  writeBookings(ss, data.bookings || []);\n' +
+'  var incomingTransactions = data.transactions;\n' +
+'  var incomingBookings = data.bookings;\n' +
+'  // The app never has a "delete everything" feature — removals always take\n' +
+'  // out one row at a time, so a genuine save should never send back a\n' +
+'  // fully empty list for a sheet that currently has real data. Confirmed\n' +
+'  // live on 2026-09-26: a client somehow synced with empty local state and\n' +
+'  // this path silently wiped both sheets down to just their headers, with\n' +
+'  // no confirmation and no trace — recovered only via Sheets version\n' +
+'  // history. Refuse the write instead of repeating that.\n' +
+'  guardAgainstEmptyOverwrite(ss, \'Transactions\', incomingTransactions);\n' +
+'  guardAgainstEmptyOverwrite(ss, \'Bookings\', incomingBookings);\n' +
+'  assertDirectBookingsComplete(incomingBookings);\n' +
+'  writeTransactions(ss, incomingTransactions);\n' +
+'  writeBookings(ss, incomingBookings);\n' +
 '  return jsonResponse(readAll());\n' +
 '}\n' +
+'\n' +
+'// The app\'s own form already requires these fields for every Direct\n' +
+'// booking via HTML "required" attributes — but that only protects saves\n' +
+'// made through the app\'s UI. A booking written straight to this endpoint\n' +
+'// (an automation, a manual API call) skips that entirely. This is the\n' +
+'// same rule enforced server-side, so it can\'t be bypassed that way either.\n' +
+'// Scoped to Confirmed/Confirmed-Advance/Confirmed-Paid specifically,\n' +
+'// matching what these statuses actually mean (only Direct bookings use\n' +
+'// them) — NOT every Direct booking regardless of status, since that would\n' +
+'// retroactively break saves on older Direct rows that are Pending,\n' +
+'// Cancelled, etc. and were never required to be complete.\n' +
+'var CONFIRMED_STATUSES = [\'Confirmed\', \'Confirmed-Advance\', \'Confirmed-Paid\'];\n' +
+'function assertDirectBookingsComplete(bookings) {\n' +
+'  var requiredFields = [\'bookingNumber\', \'guestName\', \'guestEmail\', \'checkIn\', \'checkOut\', \'amount\', \'guests\'];\n' +
+'  bookings.forEach(function (b) {\n' +
+'    if (b.source !== \'Direct\') return;\n' +
+'    if (CONFIRMED_STATUSES.indexOf(b.status) === -1) return;\n' +
+'    var missing = requiredFields.filter(function (field) {\n' +
+'      var v = b[field];\n' +
+'      return v === undefined || v === null || String(v).trim() === \'\';\n' +
+'    });\n' +
+'    if (missing.length) {\n' +
+'      throw new Error(\'Booking \' + (b.bookingNumber || b.guestName || b.id) + \' is missing required field(s) for a \' + b.status + \' Direct booking: \' + missing.join(\', \'));\n' +
+'    }\n' +
+'  });\n' +
+'}\n' +
+'\n' +
+'// Throws (uncaught, on purpose) if asked to overwrite a sheet that\n' +
+'// currently has real data with an empty list — see the note in doPost()\n' +
+'// above for why. Throwing here means the client\'s fetch sees a failed\n' +
+'// request and falls into its existing "Could not save" error handling,\n' +
+'// rather than the request quietly succeeding with an empty result (the\n' +
+'// app has no code path today that inspects a JSON {error: ...} body from\n' +
+'// this endpoint, so returning one instead of throwing would be treated as\n' +
+'// a successful, empty save — exactly the failure mode this exists to\n' +
+'// prevent). Also emails the team, since a legitimate save should never\n' +
+'// hit this — it means something upstream failed silently.\n' +
+'function guardAgainstEmptyOverwrite(ss, sheetName, incomingRows) {\n' +
+'  if (incomingRows.length > 0) return;\n' +
+'  var sheet = ss.getSheetByName(sheetName);\n' +
+'  if (!sheet) return;\n' +
+'  if (sheet.getLastRow() <= 1) return; // already empty — nothing to lose\n' +
+'  MailApp.sendEmail({\n' +
+'    to: TEAM_ALERT_EMAILS,\n' +
+'    subject: \'[Blocked] A save tried to wipe the "\' + sheetName + \'" sheet\',\n' +
+'    body: \'A save request tried to overwrite "\' + sheetName + \'" — which currently has \' + (sheet.getLastRow() - 1) + \' row(s) of real data — with an empty list.\\n\\n\' +\n' +
+'      \'This has been blocked automatically. Nothing was changed in the Sheet.\\n\\n\' +\n' +
+'      \'This should never happen during normal use (the app only ever removes one row at a time, never all of them). It most likely means someone\\\'s copy of the app failed to load data properly before it tried to save. Ask them to reload the app and check their connection before saving again.\'\n' +
+'  });\n' +
+'  throw new Error(\'Refused to save — "\' + sheetName + \'" currently has data, but this save would have wiped it. Nothing was changed. Reload the app and try again.\');\n' +
+'}\n' +
+'\n' +
+'// Bump this any time doGet/doPost or anything they call changes, together\n' +
+'// with the matching EXPECTED_SCRIPT_VERSION constant in index.html. A\n' +
+'// second data wipe (2026-09-26, 5:36-5:38am) traced back to the Web App\n' +
+'// silently still running an OLD deployed version -- one that predated the\n' +
+'// empty-overwrite guard entirely, so the guard never actually ran, and\n' +
+'// Manage Deployments gives no obvious warning when a redeploy didn\'t\n' +
+'// stick. Sending this back on every response is what lets the app (and\n' +
+'// anyone checking) tell definitively whether a redeploy actually took\n' +
+'// effect, instead of trusting the deployments UI alone.\n' +
+'var SCRIPT_VERSION = \'2026-10-14-1\';\n' +
 '\n' +
 '// Reads both sheets and returns them as plain JS objects/arrays.\n' +
 'function readAll() {\n' +
 '  var ss = SpreadsheetApp.getActiveSpreadsheet();\n' +
 '  backfillMissingBookingIds(ss);\n' +
 '  return {\n' +
-'    transactions: readSheet(ss, \'Transactions\', [\'id\',\'type\',\'date\',\'category\',\'subcategory\',\'description\',\'amount\',\'addedBy\',\'recurrence\',\'createdAt\',\'updatedAt\',\'endsOn\']),\n' +
-'    bookings: readSheet(ss, \'Bookings\', [\'id\',\'bookingNumber\',\'guestName\',\'guestEmail\',\'guestPhone\',\'checkIn\',\'checkOut\',\'source\',\'amount\',\'status\',\'remarks\',\'addedBy\',\'createdAt\',\'updatedAt\',\'guests\'])\n' +
+'    transactions: readSheet(ss, \'Transactions\', [\'id\',\'type\',\'date\',\'category\',\'subcategory\',\'description\',\'amount\',\'addedBy\',\'recurrence\',\'createdAt\',\'updatedAt\',\'endsOn\',\'bookingId\']),\n' +
+'    bookings: readSheet(ss, \'Bookings\', [\'id\',\'bookingNumber\',\'guestName\',\'guestEmail\',\'guestPhone\',\'checkIn\',\'checkOut\',\'source\',\'amount\',\'status\',\'remarks\',\'addedBy\',\'createdAt\',\'updatedAt\',\'guests\']),\n' +
+'    scriptVersion: SCRIPT_VERSION\n' +
 '  };\n' +
 '}\n' +
 '\n' +
@@ -896,11 +1001,11 @@ var APPS_SCRIPT_CODE =
 'function writeTransactions(ss, transactions) {\n' +
 '  var sheet = ss.getSheetByName(\'Transactions\') || ss.insertSheet(\'Transactions\');\n' +
 '  sheet.clear();\n' +
-'  var headers = [\'ID\', \'Type\', \'Date\', \'Category\', \'Subcategory\', \'Description\', \'Amount\', \'Added By\', \'Recurrence\', \'Created At\', \'Updated At\', \'Ends On\'];\n' +
+'  var headers = [\'ID\', \'Type\', \'Date\', \'Category\', \'Subcategory\', \'Description\', \'Amount\', \'Added By\', \'Recurrence\', \'Created At\', \'Updated At\', \'Ends On\', \'Booking ID\'];\n' +
 '  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);\n' +
 '  if (transactions.length > 0) {\n' +
 '    var rows = transactions.map(function (t) {\n' +
-'      return [t.id, t.type, forceText(t.date), t.category, t.subcategory || \'\', t.description || \'\', t.amount, t.addedBy, t.recurrence || \'One-off\', forceText(t.createdAt), forceText(t.updatedAt), forceText(t.endsOn || \'\')];\n' +
+'      return [t.id, t.type, forceText(t.date), t.category, t.subcategory || \'\', t.description || \'\', t.amount, t.addedBy, t.recurrence || \'One-off\', forceText(t.createdAt), forceText(t.updatedAt), forceText(t.endsOn || \'\'), t.bookingId || \'\'];\n' +
 '    });\n' +
 '    sheet.getRange(2, 3, rows.length, 1).setNumberFormat(\'@\');\n' +
 '    sheet.getRange(2, 10, rows.length, 3).setNumberFormat(\'@\');\n' +
@@ -1070,11 +1175,12 @@ var APPS_SCRIPT_CODE =
 '// The two receipt "stages" only differ in this copy. Amount Received/Total\n' +
 '// Amount/dates are filled in by the caller either way.\n' +
 'function getReceiptContent(input) {\n' +
+'  var cancellationLines = cancellationPolicyLines(input);\n' +
 '  if (input.stage === \'paid\') {\n' +
 '    return {\n' +
 '      statusLine: \'Your booking is confirmed and complete.\',\n' +
-'      balanceLines: [\'Full payment received.\', \'Booking confirmed and complete — no balance due.\'],\n' +
-'      nonRefundable: \'All payments received are non-refundable.\'\n' +
+'      balanceLines: [\'Full payment received — booking confirmed and complete, no balance due.\'],\n' +
+'      cancellationLines: cancellationLines\n' +
 '    };\n' +
 '  }\n' +
 '  var remaining = Math.max(0, Number(input.totalAmount) - Number(input.amountReceived));\n' +
@@ -1083,9 +1189,48 @@ var APPS_SCRIPT_CODE =
 '  var dueDateStr = Utilities.formatDate(dueDate, Session.getScriptTimeZone(), \'d MMM yyyy\');\n' +
 '  return {\n' +
 '    statusLine: \'Your booking has been confirmed, pending the remaining balance.\',\n' +
-'    balanceLines: [\'Booking confirmed, balance of \' + formatMoney(remaining) + \',\', \'Due one day before check-in, i.e. \' + dueDateStr + \'.\'],\n' +
-'    nonRefundable: \'Advance payment is non-refundable.\'\n' +
+'    balanceLines: [\'Booking confirmed. The balance of \' + formatMoney(remaining) + \' is due by 10:00 AM on \' + dueDateStr + \' (the day before check-in).\'],\n' +
+'    cancellationLines: cancellationLines\n' +
 '  };\n' +
+'}\n' +
+'\n' +
+'// True if any NIGHT of the stay (check-in up to, not including, check-out)\n' +
+'// falls between 1 November and 31 December — the Direct Booking\n' +
+'// Cancellation Policy makes those bookings non-refundable, so the receipt\n' +
+'// states that plainly instead of listing refund tiers that don\'t apply.\n' +
+'function stayIncludesPeakNights(checkIn, checkOut) {\n' +
+'  var parse = function (s) {\n' +
+'    var m = /^(\\d{4})-(\\d{2})-(\\d{2})/.exec(String(s || \'\'));\n' +
+'    return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null;\n' +
+'  };\n' +
+'  var start = parse(checkIn);\n' +
+'  if (!start) return false;\n' +
+'  var end = parse(checkOut);\n' +
+'  if (!end || end <= start) end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1);\n' +
+'  for (var d = new Date(start); d < end; d.setDate(d.getDate() + 1)) {\n' +
+'    if (d.getMonth() >= 10) return true;\n' +
+'  }\n' +
+'  return false;\n' +
+'}\n' +
+'\n' +
+'// The Direct Booking Cancellation Policy, as printed on page 2 of every\n' +
+'// receipt. Keep in step with the policy poster and Maya\'s prompt\n' +
+'// (maya-email-assistant.gs) — all three should say the same thing.\n' +
+'function cancellationPolicyLines(input) {\n' +
+'  var lines = stayIncludesPeakNights(input.checkIn, input.checkOut)\n' +
+'    ? [\'This booking includes peak-season dates (1 November – 31 December) and is non-refundable.\']\n' +
+'    : [\n' +
+'        \'If your plans change, the advance is refunded (minus payment processing charges) as follows: 14 or more days before check-in — full refund; 7–13 days — 50% refund; less than 7 days — no refund.\',\n' +
+'        \'Bookings on selected holidays are non-refundable, as confirmed at the time of booking.\',\n' +
+'        \'You can move your dates once, at no charge, up to 7 days before check-in, subject to availability. Any difference in rate applies.\'\n' +
+'      ];\n' +
+'  return lines.concat([\n' +
+'    \'No refund for no-shows, early departures or unused nights.\',\n' +
+'    \'If we cancel your booking for any reason, you get a full refund of all amounts paid.\',\n' +
+'    \'If the Kerala government or IMD issues a red alert or a travel restriction for Thiruvananthapuram district covering your stay dates, you can choose a full refund or free rebooking.\',\n' +
+'    \'Refunds go back to the original payment method (UPI or bank transfer) within 7 business days.\',\n' +
+'    \'To cancel, email info.sindooramecostays@gmail.com or WhatsApp +91 98468 22350 with your booking details.\'\n' +
+'  ]);\n' +
 '}\n' +
 '\n' +
 '// Sets bold/color/size on a paragraph\'s text without relying on Paragraph\n' +
@@ -1114,6 +1259,19 @@ var APPS_SCRIPT_CODE =
 '  if (opts.bold) t.setBold(true);\n' +
 '  t.setForegroundColor(0, 0, BULLET_COLOR);\n' +
 '  return p;\n' +
+'}\n' +
+'\n' +
+'// A borderless, shaded single-cell box for a block of bullet lines (the\n' +
+'// Payment Terms and Cancellation Policy sections on page 2). Returns the\n' +
+'// cell, already emptied of the default blank paragraph.\n' +
+'function appendTermsBox(body) {\n' +
+'  var table = body.appendTable([[\'\']]);\n' +
+'  table.setBorderWidth(0);\n' +
+'  var cell = table.getCell(0, 0);\n' +
+'  cell.setBackgroundColor(RECEIPT_FILL_COLOR);\n' +
+'  cell.setPaddingTop(10).setPaddingBottom(10).setPaddingLeft(12).setPaddingRight(12);\n' +
+'  cell.getChild(0).asParagraph().removeFromParent();\n' +
+'  return cell;\n' +
 '}\n' +
 '\n' +
 '// A borderless 2-column [label, value] row, value cell highlighted — the\n' +
@@ -1177,7 +1335,7 @@ var APPS_SCRIPT_CODE =
 '  infoP2.setAlignment(DocumentApp.HorizontalAlignment.RIGHT);\n' +
 '  infoP2.setSpacingBefore(0).setSpacingAfter(2).setLineSpacing(1);\n' +
 '  styleParaText(infoP2, { size: 9 });\n' +
-'  var infoP3 = infoCell.appendParagraph(\'+91 98460 22350  |  sindooramecostays.com\');\n' +
+'  var infoP3 = infoCell.appendParagraph(\'+91 98468 22350  |  sindooramecostays.com\');\n' +
 '  infoP3.setAlignment(DocumentApp.HorizontalAlignment.RIGHT);\n' +
 '  infoP3.setSpacingBefore(0).setSpacingAfter(0).setLineSpacing(1);\n' +
 '  styleParaText(infoP3, { size: 9 });\n' +
@@ -1218,22 +1376,24 @@ var APPS_SCRIPT_CODE =
 '  appendFieldRow(body, \'Rate includes\', input.rateIncludes || \'\');\n' +
 '\n' +
 '  body.appendPageBreak();\n' +
-'  styleParaText(body.appendParagraph(\'Payment Terms & Conditions\'), { bold: true, color: \'#8F4128\', size: 12 });\n' +
-'\n' +
-'  var termsTable = body.appendTable([[\'\']]);\n' +
-'  termsTable.setBorderWidth(0);\n' +
-'  var termsCell = termsTable.getCell(0, 0);\n' +
-'  termsCell.setBackgroundColor(RECEIPT_FILL_COLOR);\n' +
-'  termsCell.setPaddingTop(10).setPaddingBottom(10).setPaddingLeft(12).setPaddingRight(12);\n' +
-'  termsCell.getChild(0).asParagraph().removeFromParent();\n' +
+'  styleParaText(body.appendParagraph(\'Payment Terms\'), { bold: true, color: \'#8F4128\', size: 12 });\n' +
+'  var termsCell = appendTermsBox(body);\n' +
 '  content.balanceLines.forEach(function (line) {\n' +
 '    appendBulletLine(termsCell, line, { size: 10 });\n' +
 '  });\n' +
-'  appendBulletLine(termsCell, \'Early check-in is subject to availability\', { size: 10 });\n' +
-'  appendBulletLine(termsCell, content.nonRefundable, { size: 10, bold: true });\n' +
+'  appendBulletLine(termsCell, \'Early check-in and late check-out are subject to availability and prior confirmation.\', { size: 10 });\n' +
 '\n' +
 '  body.appendParagraph(\'\');\n' +
-'  styleParaText(body.appendParagraph(\'If you have any questions before your stay, feel free to reach out to us directly on WhatsApp: +91 98460 22350.\'), { size: 10 });\n' +
+'  styleParaText(body.appendParagraph(\'Cancellation Policy\'), { bold: true, color: \'#8F4128\', size: 12 });\n' +
+'  var policyCell = appendTermsBox(body);\n' +
+'  content.cancellationLines.forEach(function (line, i) {\n' +
+'    // The first line is the one that most depends on this booking (peak\n' +
+'    // season = non-refundable, otherwise the refund tiers) — bold it.\n' +
+'    appendBulletLine(policyCell, line, { size: 10, bold: i === 0 });\n' +
+'  });\n' +
+'\n' +
+'  body.appendParagraph(\'\');\n' +
+'  styleParaText(body.appendParagraph(\'If you have any questions before your stay, feel free to reach out to us directly on WhatsApp: +91 98468 22350.\'), { size: 10 });\n' +
 '  styleParaText(body.appendParagraph(\'Feel free to check out our website for things to do nearby and more to help you plan your stay: sindooramecostays.com.\'), { size: 10 });\n' +
 '  body.appendParagraph(\'\');\n' +
 '  styleParaText(body.appendParagraph(\'Looking forward to welcoming you all soon!\'), { size: 10 });\n' +
@@ -1281,7 +1441,8 @@ var APPS_SCRIPT_CODE =
 '    \'Thank you! Please find attached your payment receipt for booking \' + input.bookingNumber + \' at Sindooram Ecostay.\\n\\n\' +\n' +
 '    content.statusLine + \'\\n\\n\' +\n' +
 '    \'Check-in: \' + input.checkIn + \'\\nCheck-out: \' + input.checkOut + \'\\n\\n\' +\n' +
-'    \'If you have any questions before your stay, reach us on WhatsApp: +91 98460 22350.\\n\\n\' +\n' +
+'    \'Our payment terms and cancellation policy are on page 2 of the attached receipt.\\n\\n\' +\n' +
+'    \'If you have any questions before your stay, reach us on WhatsApp: +91 98468 22350.\\n\\n\' +\n' +
 '    \'Looking forward to welcoming you all soon!\\n\\nRegards,\\nTeam Sindooram\';\n' +
 '  return { subject: \'Payment Receipt — Booking \' + input.bookingNumber + \' (\' + stagePretty + \')\', bodyText: bodyText };\n' +
 '}\n' +
@@ -1314,20 +1475,39 @@ var APPS_SCRIPT_CODE =
 '  var receiptsFolder = DriveApp.getFolderById(RECEIPTS_FOLDER_ID);\n' +
 '  var bookingFolder = getOrCreateFolder(receiptsFolder, input.bookingNumber);\n' +
 '  var savedFile = bookingFolder.createFile(pdfBlob);\n' +
-'  logReceipt(ss, input, savedFile.getUrl());\n' +
+'  logReceipt(ss, input, savedFile.getUrl(), String(data.sentBy || \'\').trim());\n' +
 '  return { status: \'sent\' };\n' +
 '}\n' +
 '\n' +
-'function logReceipt(ss, input, fileUrl) {\n' +
+'// Writes columns by header NAME, not fixed position — self-healing if the\n' +
+'// sheet already exists from before \'Sent By\' was added (appends the header\n' +
+'// once, then every write since lines up under it), same lesson as the\n' +
+'// ID Vault "stale headers" bug: a fixed-position appendRow() silently goes\n' +
+'// out of sync the moment the header row and the code\'s write order drift.\n' +
+'function logReceipt(ss, input, fileUrl, sentBy) {\n' +
 '  var sheet = ss.getSheetByName(\'Receipts\') || ss.insertSheet(\'Receipts\');\n' +
+'  var baseHeaders = [\'ID\', \'Booking ID\', \'Booking Number\', \'Guest Name\', \'Guest Email\', \'Stage\', \'Amount Received\', \'Total Amount\', \'Received Date\', \'Rate Includes\', \'Check-in\', \'Check-out\', \'Guests\', \'Sent At\', \'Sent By\', \'PDF Link\'];\n' +
 '  if (sheet.getLastRow() === 0) {\n' +
-'    var headers = [\'ID\', \'Booking ID\', \'Booking Number\', \'Guest Name\', \'Guest Email\', \'Stage\', \'Amount Received\', \'Total Amount\', \'Received Date\', \'Rate Includes\', \'Check-in\', \'Check-out\', \'Guests\', \'Sent At\', \'PDF Link\'];\n' +
-'    sheet.appendRow(headers);\n' +
-'    sheet.getRange(1, 1, 1, headers.length).setFontWeight(\'bold\');\n' +
+'    sheet.appendRow(baseHeaders);\n' +
+'    sheet.getRange(1, 1, 1, baseHeaders.length).setFontWeight(\'bold\');\n' +
+'  }\n' +
+'  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];\n' +
+'  if (headers.indexOf(\'Sent By\') === -1) {\n' +
+'    sheet.getRange(1, headers.length + 1, 1, 1).setValue(\'Sent By\').setFontWeight(\'bold\');\n' +
+'    headers = headers.concat([\'Sent By\']);\n' +
 '  }\n' +
 '  var id = \'rc_\' + new Date().getTime().toString(36) + Math.random().toString(36).slice(2, 7);\n' +
-'  sheet.appendRow([id, input.bookingId, input.bookingNumber, input.guestName, input.guestEmail, input.stage, input.amountReceived, input.totalAmount, input.receivedDate, input.rateIncludes, input.checkIn, input.checkOut, input.guests, new Date(), fileUrl]);\n' +
-'  sheet.autoResizeColumns(1, 15);\n' +
+'  var values = {\n' +
+'    \'ID\': id, \'Booking ID\': input.bookingId, \'Booking Number\': input.bookingNumber,\n' +
+'    \'Guest Name\': input.guestName, \'Guest Email\': input.guestEmail, \'Stage\': input.stage,\n' +
+'    \'Amount Received\': input.amountReceived, \'Total Amount\': input.totalAmount,\n' +
+'    \'Received Date\': input.receivedDate, \'Rate Includes\': input.rateIncludes,\n' +
+'    \'Check-in\': input.checkIn, \'Check-out\': input.checkOut, \'Guests\': input.guests,\n' +
+'    \'Sent At\': new Date(), \'Sent By\': sentBy || \'\', \'PDF Link\': fileUrl\n' +
+'  };\n' +
+'  var row = headers.map(function (h) { return values[h] !== undefined ? values[h] : \'\'; });\n' +
+'  sheet.getRange(sheet.getLastRow() + 1, 1, 1, row.length).setValues([row]);\n' +
+'  sheet.autoResizeColumns(1, headers.length);\n' +
 '}\n' +
 '\n' +
 'function latestReceiptForBooking(ss, bookingId, stage) {\n' +
@@ -1346,32 +1526,203 @@ var APPS_SCRIPT_CODE =
 '  return { amountReceived: last[col[\'Amount Received\']] };\n' +
 '}\n' +
 '\n' +
+'// Powers the "already sent by X on Y" notice in the app — lets a second\n' +
+'// person opening the same booking see a receipt went out before they\n' +
+'// double-send one. Any stage counts (advance or paid), most recent wins.\n' +
+'function latestReceiptSentInfo(ss, bookingId) {\n' +
+'  var sheet = ss.getSheetByName(\'Receipts\');\n' +
+'  if (!sheet) return null;\n' +
+'  var values = sheet.getDataRange().getValues();\n' +
+'  if (values.length < 2) return null;\n' +
+'  var headers = values[0];\n' +
+'  var col = {};\n' +
+'  headers.forEach(function (h, i) { col[h] = i; });\n' +
+'  var matches = values.slice(1).filter(function (row) {\n' +
+'    return row[col[\'Booking ID\']] === bookingId;\n' +
+'  });\n' +
+'  if (!matches.length) return null;\n' +
+'  var last = matches[matches.length - 1];\n' +
+'  var sentAt = last[col[\'Sent At\']];\n' +
+'  return {\n' +
+'    stage: last[col[\'Stage\']],\n' +
+'    sentBy: col[\'Sent By\'] !== undefined ? String(last[col[\'Sent By\']] || \'\') : \'\',\n' +
+'    sentAt: sentAt instanceof Date ? sentAt.toISOString() : String(sentAt || \'\')\n' +
+'  };\n' +
+'}\n' +
+'\n' +
+'// Every receipt sent for one booking, oldest first — powers the app\'s\n' +
+'// "sent by X on Y · View" list. Only rows with a saved PDF link get an id\n' +
+'// the app can ask to view (older rows logged before the link existed\n' +
+'// still show, just without a View button).\n' +
+'function receiptsSentForBooking(ss, bookingId) {\n' +
+'  var sheet = ss.getSheetByName(\'Receipts\');\n' +
+'  if (!sheet) return [];\n' +
+'  var values = sheet.getDataRange().getValues();\n' +
+'  if (values.length < 2) return [];\n' +
+'  var headers = values[0];\n' +
+'  var col = {};\n' +
+'  headers.forEach(function (h, i) { col[h] = i; });\n' +
+'  return values.slice(1)\n' +
+'    .filter(function (row) { return row[col[\'Booking ID\']] === bookingId; })\n' +
+'    .map(function (row) {\n' +
+'      var sentAt = row[col[\'Sent At\']];\n' +
+'      return {\n' +
+'        id: row[col[\'PDF Link\']] ? String(row[col[\'ID\']] || \'\') : \'\',\n' +
+'        stage: row[col[\'Stage\']],\n' +
+'        sentBy: col[\'Sent By\'] !== undefined ? String(row[col[\'Sent By\']] || \'\') : \'\',\n' +
+'        sentAt: sentAt instanceof Date ? sentAt.toISOString() : String(sentAt || \'\')\n' +
+'      };\n' +
+'    });\n' +
+'}\n' +
+'\n' +
+'// doPost action \'getSentReceiptPdf\' — returns the exact PDF that was\n' +
+'// emailed (the copy saved to the Payment receipt folder at send time), so\n' +
+'// anyone using the app can view it without needing access to that Drive\n' +
+'// folder themselves. Looked up by the Receipts row ID, never by a URL the\n' +
+'// app supplies.\n' +
+'function handleGetSentReceiptPdf(data) {\n' +
+'  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(\'Receipts\');\n' +
+'  if (!sheet) throw new Error(\'No receipts have been sent yet.\');\n' +
+'  var values = sheet.getDataRange().getValues();\n' +
+'  var headers = values[0];\n' +
+'  var col = {};\n' +
+'  headers.forEach(function (h, i) { col[h] = i; });\n' +
+'  var row = values.slice(1).filter(function (r) { return String(r[col[\'ID\']]) === String(data.receiptId); })[0];\n' +
+'  if (!row) throw new Error(\'Receipt not found.\');\n' +
+'  var match = /\\/d\\/([A-Za-z0-9_-]+)/.exec(String(row[col[\'PDF Link\']] || \'\'));\n' +
+'  if (!match) throw new Error(\'This receipt has no saved PDF.\');\n' +
+'  var file = DriveApp.getFileById(match[1]);\n' +
+'  return { pdfBase64: Utilities.base64Encode(file.getBlob().getBytes()), fileName: file.getName() };\n' +
+'}\n' +
+'\n' +
+'// Team address used for BCC on every scheduled guest email below, and as\n' +
+'// the direct recipient for the missing-info alert.\n' +
+'var TEAM_ALERT_EMAILS = \'chinnoos.pr@gmail.com,chandusrinivasan@yahoo.co.in\';\n' +
+'\n' +
+'// A booking matched one of the scheduled emails below (right source,\n' +
+'// right status, right date) but is missing something needed to actually\n' +
+'// send it — most commonly no Guest Email on file. Rather than silently\n' +
+'// skipping it (the old behavior — the booking would just vanish with no\n' +
+'// email and no trace), this tells the team directly so someone can add\n' +
+'// the missing field and, if needed, send it by hand.\n' +
+'function alertMissingGuestInfo(emailLabel, b, reason) {\n' +
+'  MailApp.sendEmail({\n' +
+'    to: TEAM_ALERT_EMAILS,\n' +
+'    subject: \'[Action needed] \' + emailLabel + \' not sent — Booking \' + (b.bookingNumber || \'(no number)\'),\n' +
+'    body: \'Booking \' + (b.bookingNumber || \'(no number)\') + \' (\' + (b.guestName || \'unknown guest\') + \') matched today\\\'s \' +\n' +
+'      emailLabel.toLowerCase() + \', but \' + reason + \', so nothing was sent.\\n\\n\' +\n' +
+'      \'Check-in: \' + (b.checkIn || \'—\') + \'\\nCheck-out: \' + (b.checkOut || \'—\') + \'\\n\\n\' +\n' +
+'      \'Fix the booking in the Ledger, then run retrySendFailed() (or wait for it to catch it automatically if you\\\'ve scheduled it) — no need to resend the whole day\\\'s batch by hand.\'\n' +
+'  });\n' +
+'  logFailedSend(emailLabel, b, reason);\n' +
+'}\n' +
+'\n' +
+'// Logs a row to the "Failed Sends" tab for every booking alertMissingGuestInfo\n' +
+'// fires for, so retrySendFailed() has something targeted to retry later —\n' +
+'// only this specific booking/email pair, never the whole day\'s batch (which\n' +
+'// would risk double-emailing guests who already got theirs).\n' +
+'function logFailedSend(emailLabel, b, reason) {\n' +
+'  var ss = SpreadsheetApp.getActiveSpreadsheet();\n' +
+'  var sheet = ss.getSheetByName(\'Failed Sends\') || ss.insertSheet(\'Failed Sends\');\n' +
+'  if (sheet.getLastRow() === 0) {\n' +
+'    var headers = [\'ID\', \'Booking ID\', \'Booking Number\', \'Guest Name\', \'Email Type\', \'Reason\', \'Check-in\', \'Check-out\', \'Detected At\', \'Resolved At\'];\n' +
+'    sheet.appendRow(headers);\n' +
+'    sheet.getRange(1, 1, 1, headers.length).setFontWeight(\'bold\');\n' +
+'  }\n' +
+'  var id = \'fs_\' + new Date().getTime().toString(36) + Math.random().toString(36).slice(2, 7);\n' +
+'  sheet.appendRow([id, b.id, b.bookingNumber || \'\', b.guestName || \'\', emailLabel, reason, b.checkIn || \'\', b.checkOut || \'\', new Date(), \'\']);\n' +
+'  sheet.autoResizeColumns(1, 10);\n' +
+'}\n' +
+'\n' +
+'// Retries every unresolved row in "Failed Sends" — safe to run as often as\n' +
+'// you like, since it only ever touches the specific booking/email pairs\n' +
+'// that previously failed and are still unresolved, never bookings that\n' +
+'// already succeeded. Run this manually (Apps Script editor → select →\n' +
+'// Run) any time after fixing a booking\'s missing info.\n' +
+'function retrySendFailed() {\n' +
+'  var ss = SpreadsheetApp.getActiveSpreadsheet();\n' +
+'  var sheet = ss.getSheetByName(\'Failed Sends\');\n' +
+'  if (!sheet) { Logger.log(\'No Failed Sends sheet yet — nothing to retry.\'); return; }\n' +
+'  var values = sheet.getDataRange().getValues();\n' +
+'  if (values.length < 2) return;\n' +
+'  var headers = values[0];\n' +
+'  var col = {};\n' +
+'  headers.forEach(function (h, i) { col[h] = i; });\n' +
+'\n' +
+'  var data = readAll();\n' +
+'  var bookingsById = {};\n' +
+'  data.bookings.forEach(function (b) { bookingsById[b.id] = b; });\n' +
+'\n' +
+'  for (var i = 1; i < values.length; i++) {\n' +
+'    var row = values[i];\n' +
+'    if (row[col[\'Resolved At\']]) continue;\n' +
+'    var b = bookingsById[row[col[\'Booking ID\']]];\n' +
+'    if (!b || !b.guestEmail) continue; // still not fixed — leave unresolved, try again later\n' +
+'\n' +
+'    var isConfirmed = b.source === \'Direct\' && (b.status === \'Confirmed-Advance\' || b.status === \'Confirmed-Paid\');\n' +
+'    var msg = null;\n' +
+'    var emailLabel = row[col[\'Email Type\']];\n' +
+'    if (emailLabel === \'Balance reminder\' && b.status === \'Confirmed-Advance\' && isConfirmed) {\n' +
+'      msg = buildPaymentReminderEmail(ss, b);\n' +
+'    } else if (emailLabel === \'Arrival guide\' && isConfirmed) {\n' +
+'      msg = buildArrivalGuideEmail(b);\n' +
+'    } else if (emailLabel === \'Pre-checkout email\' && isConfirmed) {\n' +
+'      msg = buildPreCheckoutEmail(b);\n' +
+'    } else if (emailLabel === \'Feedback email\' && isConfirmed) {\n' +
+'      msg = buildFeedbackEmail(b);\n' +
+'    }\n' +
+'    // A status that\'s since moved on (e.g. Cancelled, or Confirmed-Paid for\n' +
+'    // a balance reminder) means there\'s nothing left to send for this row —\n' +
+'    // resolved below either way, since there\'s nothing more to retry.\n' +
+'    if (msg) {\n' +
+'      MailApp.sendEmail({ to: b.guestEmail, subject: msg.subject, body: msg.body, bcc: TEAM_ALERT_EMAILS });\n' +
+'    }\n' +
+'    sheet.getRange(i + 1, col[\'Resolved At\'] + 1).setValue(new Date());\n' +
+'  }\n' +
+'}\n' +
+'\n' +
 '// Daily reminder for Direct bookings still on Confirmed-Advance (balance\n' +
-'// outstanding) whose check-in is tomorrow. Plain text, no attachment.\n' +
-'// Skips anything already Confirmed-Paid — nothing owed, nothing to remind.\n' +
+'// outstanding) whose check-in is in TWO days. The balance is due by 10 AM\n' +
+'// the day before check-in, so reminding the day before (this runs at 9am)\n' +
+'// left guests about an hour — two days out gives them a full day.\n' +
+'// Plain text, no attachment. Skips anything already Confirmed-Paid —\n' +
+'// nothing owed, nothing to remind.\n' +
 'function sendPaymentReminders() {\n' +
 '  var ss = SpreadsheetApp.getActiveSpreadsheet();\n' +
 '  var data = readAll();\n' +
-'  var tomorrow = new Date();\n' +
-'  tomorrow.setDate(tomorrow.getDate() + 1);\n' +
-'  var tomorrowStr = Utilities.formatDate(tomorrow, Session.getScriptTimeZone(), \'yyyy-MM-dd\');\n' +
+'  var inTwoDays = new Date();\n' +
+'  inTwoDays.setDate(inTwoDays.getDate() + 2);\n' +
+'  var inTwoDaysStr = Utilities.formatDate(inTwoDays, Session.getScriptTimeZone(), \'yyyy-MM-dd\');\n' +
 '  data.bookings.forEach(function (b) {\n' +
 '    if (b.source !== \'Direct\') return;\n' +
 '    if (b.status !== \'Confirmed-Advance\') return;\n' +
-'    if (String(b.checkIn).slice(0, 10) !== tomorrowStr) return;\n' +
-'    if (!b.guestEmail) return;\n' +
-'    var receipt = latestReceiptForBooking(ss, b.id, \'advance\');\n' +
-'    var amountReceived = receipt ? Number(receipt.amountReceived) : (Number(b.amount) || 0) / 2;\n' +
-'    var remaining = Math.max(0, (Number(b.amount) || 0) - amountReceived);\n' +
-'    var checkInLabel = Utilities.formatDate(new Date(b.checkIn + \'T00:00:00\'), Session.getScriptTimeZone(), \'d MMM yyyy\');\n' +
-'    var dueDateStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), \'d MMM yyyy\');\n' +
-'    var body = \'Hi \' + b.guestName + \',\\n\\n\' +\n' +
-'      \'Just a friendly reminder — your stay at Sindooram Ecostay (Booking \' + b.bookingNumber + \') checks in tomorrow, \' + checkInLabel + \'.\\n\\n\' +\n' +
-'      \'The remaining balance of \' + formatMoney(remaining) + \' is due by \' + dueDateStr + \' (one day before check-in).\\n\\n\' +\n' +
-'      \'If you have already paid this, please disregard this message. For any questions, reach us on WhatsApp: +91 98460 22350.\\n\\n\' +\n' +
-'      \'Looking forward to welcoming you!\\n\\nRegards,\\nTeam Sindooram\';\n' +
-'    MailApp.sendEmail({ to: b.guestEmail, subject: \'Reminder: Balance due for your upcoming stay — \' + b.bookingNumber, body: body });\n' +
+'    if (String(b.checkIn).slice(0, 10) !== inTwoDaysStr) return;\n' +
+'    if (!b.guestEmail) { alertMissingGuestInfo(\'Balance reminder\', b, \'it has no Guest Email\'); return; }\n' +
+'    var msg = buildPaymentReminderEmail(ss, b);\n' +
+'    MailApp.sendEmail({ to: b.guestEmail, subject: msg.subject, body: msg.body, bcc: TEAM_ALERT_EMAILS });\n' +
 '  });\n' +
+'}\n' +
+'\n' +
+'// Builds the balance-reminder subject/body for one booking — shared by\n' +
+'// sendPaymentReminders() (the daily scan) and retrySendFailed() (targeted\n' +
+'// resend), so the wording only lives in one place.\n' +
+'function buildPaymentReminderEmail(ss, b) {\n' +
+'  var receipt = latestReceiptForBooking(ss, b.id, \'advance\');\n' +
+'  var amountReceived = receipt ? Number(receipt.amountReceived) : (Number(b.amount) || 0) / 2;\n' +
+'  var remaining = Math.max(0, (Number(b.amount) || 0) - amountReceived);\n' +
+'  var checkInDate = new Date(b.checkIn + \'T00:00:00\');\n' +
+'  var checkInLabel = Utilities.formatDate(checkInDate, Session.getScriptTimeZone(), \'d MMM yyyy\');\n' +
+'  // Due date comes from the check-in itself, not "today", so a later\n' +
+'  // resend via retrySendFailed() still names the right day.\n' +
+'  var dueDate = new Date(checkInDate);\n' +
+'  dueDate.setDate(dueDate.getDate() - 1);\n' +
+'  var dueDateStr = Utilities.formatDate(dueDate, Session.getScriptTimeZone(), \'d MMM yyyy\');\n' +
+'  var body = \'Hi \' + b.guestName + \',\\n\\n\' +\n' +
+'    \'Just a friendly reminder — your stay at Sindooram Ecostay (Booking \' + b.bookingNumber + \') checks in on \' + checkInLabel + \'.\\n\\n\' +\n' +
+'    \'The remaining balance of \' + formatMoney(remaining) + \' is due by 10:00 AM on \' + dueDateStr + \' (the day before check-in).\\n\\n\' +\n' +
+'    \'If you have already paid this, please disregard this message. For any questions, reach us on WhatsApp: +91 98468 22350.\\n\\n\' +\n' +
+'    \'Looking forward to welcoming you!\\n\\nRegards,\\nTeam Sindooram\';\n' +
+'  return { subject: \'Reminder: Balance due for your upcoming stay — \' + b.bookingNumber, body: body };\n' +
 '}\n' +
 '\n' +
 '// Run this once yourself (select it above, then click Run) to schedule\n' +
@@ -1382,6 +1733,169 @@ var APPS_SCRIPT_CODE =
 '    if (t.getHandlerFunction() === \'sendPaymentReminders\') ScriptApp.deleteTrigger(t);\n' +
 '  });\n' +
 '  ScriptApp.newTrigger(\'sendPaymentReminders\').timeBased().everyDays(1).atHour(9).create();\n' +
+'}\n' +
+'\n' +
+'// Arrival-guide email for Direct bookings checking in tomorrow — check-in\n' +
+'// details, house rules, and the arrival guide, sent once the day before.\n' +
+'// Plain text, no attachment. Airbnb bookings are handled through Airbnb\'s\n' +
+'// own guest messaging, so this is Direct-only.\n' +
+'function sendArrivalGuideEmails() {\n' +
+'  var data = readAll();\n' +
+'  var tomorrow = new Date();\n' +
+'  tomorrow.setDate(tomorrow.getDate() + 1);\n' +
+'  var tomorrowStr = Utilities.formatDate(tomorrow, Session.getScriptTimeZone(), \'yyyy-MM-dd\');\n' +
+'  data.bookings.forEach(function (b) {\n' +
+'    if (b.source !== \'Direct\') return;\n' +
+'    if (b.status !== \'Confirmed-Advance\' && b.status !== \'Confirmed-Paid\') return;\n' +
+'    if (String(b.checkIn).slice(0, 10) !== tomorrowStr) return;\n' +
+'    if (!b.guestEmail) { alertMissingGuestInfo(\'Arrival guide\', b, \'it has no Guest Email\'); return; }\n' +
+'    var msg = buildArrivalGuideEmail(b);\n' +
+'    MailApp.sendEmail({ to: b.guestEmail, subject: msg.subject, body: msg.body, bcc: TEAM_ALERT_EMAILS });\n' +
+'  });\n' +
+'}\n' +
+'\n' +
+'// Builds the arrival-guide subject/body for one booking — shared by\n' +
+'// sendArrivalGuideEmails() and retrySendFailed().\n' +
+'function buildArrivalGuideEmail(b) {\n' +
+'    var checkInLabel = Utilities.formatDate(new Date(b.checkIn + \'T00:00:00\'), Session.getScriptTimeZone(), \'d MMM yyyy\');\n' +
+'    var body = \'Hi \' + b.guestName + \',\\n\\n\' +\n' +
+'      \'Booking: \' + b.bookingNumber + \'\\n\\n\' +\n' +
+'      \'Looking forward to hosting you tomorrow, \' + checkInLabel + \'. A few details for your arrival:\\n\\n\' +\n' +
+'      \'CHECK-IN\\n\' +\n' +
+'      \'- Check-in from 2:00 PM.\\n\' +\n' +
+'      \'- You\\\'ll be looked after by Mr. Mansoor, our property manager — his number is +91 96567 71881. Feel free to reach him directly for anything during your stay.\\n\' +\n' +
+'      \'- Every adult in your group needs a valid government-approved ID (driving licence, Aadhaar, etc.) — collected at check-in per Tourism Department rules.\\n\' +\n' +
+'      \'- Let Mansoor know your breakfast preference at check-in; it\\\'s prepared by Swadish Catering, a local family-run kitchen.\\n\' +\n' +
+'      \'- WiFi details are shared at check-in, and Mansoor will walk you through the house on arrival.\\n\\n\' +\n' +
+'      \'GETTING HERE\\n\' +\n' +
+'      \'Sindooram Ecostay, opposite Thakadi Temple, P.O, Edava, Varkala, Kerala 695311\\n\' +\n' +
+'      \'Maps: https://www.google.com/maps/search/?api=1&query=Sindooram+Ecostay+opposite+Thakadi+Temple+Edava+Varkala+Kerala+695311\\n\\n\' +\n' +
+'      \'GETTING AROUND\\n\' +\n' +
+'      \'- Want a scooter for beach hopping? Message us on WhatsApp and we\\\'ll connect you with a trusted local rental.\\n\' +\n' +
+'      \'- A driving licence is needed; overseas visitors need an International Driving Permit. Helmets are compulsory for rider and pillion.\\n\' +\n' +
+'      \'- Autos are easy for short hops; agree the fare first.\\n\\n\' +\n' +
+'      \'HOUSE RULES, BRIEFLY\\n\' +\n' +
+'      \'- Waste goes in the 3 bins provided (recyclable, non-recyclable, general).\\n\' +\n' +
+'      \'- Meals and beverages¹ stay in the dining area rather than the bedrooms.\\n\' +\n' +
+'      \'- Please keep the kitchen clean after use.\\n\' +\n' +
+'      \'- If you\\\'re not using a light, fan, or AC, please switch it off.\\n\' +\n' +
+'      \'- The switch under the TV is shared between the TV, WiFi, and CCTV cameras — please leave it on at all times, even when you\\\'re not using the TV or WiFi.\\n\' +\n' +
+'      \'- The villa is smoke-free; there\\\'s a designated smoking/vaping spot in the backyard.\\n\' +\n' +
+'      \'- Shoes off at the entrance (poomugham).\\n\' +\n' +
+'      \'- Rinse sand off at the well area, not in the toilets — sandy clothes get hand-washed there too, not in the machine.\\n\' +\n' +
+'      \'- Quiet hours after 10 PM.\\n\' +\n' +
+'      \'- Drugs² are not permitted on the property, no exceptions.\\n\' +\n' +
+'      \'- Travelling with a pet? They stay in the covered outdoor kennel beside Thira, not inside the villa or common areas.\\n\\n\' +\n' +
+'      \'Legal Compliance\\n\' +\n' +
+'      \'¹ Selling, serving, or consuming alcohol for anyone under the age of 23 is prohibited in Kerala under the Abkari Act.\\n\' +\n' +
+'      \'² Possession, sale, or consumption of drugs is prohibited in India for all ages under the NDPS Act.\\n\\n\' +\n' +
+'      \'For more on things to do or places to see, visit https://sindooramecostays.com\\n\\n\' +\n' +
+'      \'Anything before you arrive, WhatsApp us: https://wa.me/919846822350\\n\\n\' +\n' +
+'      \'Warm regards,\\nTeam Sindooram\';\n' +
+'    return { subject: \'Your stay at Sindooram Ecostay starts tomorrow — arrival details inside\', body: body };\n' +
+'}\n' +
+'\n' +
+'// Run this once yourself to schedule sendArrivalGuideEmails() daily at\n' +
+'// 9am, alongside the balance-due reminder. Re-running it is safe — it\n' +
+'// clears any previous schedule for this function first.\n' +
+'function createArrivalGuideTrigger() {\n' +
+'  ScriptApp.getProjectTriggers().forEach(function (t) {\n' +
+'    if (t.getHandlerFunction() === \'sendArrivalGuideEmails\') ScriptApp.deleteTrigger(t);\n' +
+'  });\n' +
+'  ScriptApp.newTrigger(\'sendArrivalGuideEmails\').timeBased().everyDays(1).atHour(9).create();\n' +
+'}\n' +
+'\n' +
+'// Pre-checkout email for Direct bookings checking out tomorrow — a "how\'s\n' +
+'// the stay been" check-in plus checkout details, sent the day before.\n' +
+'// Plain text, no attachment. Direct-only, same reasoning as the arrival\n' +
+'// guide (Airbnb bookings are handled through Airbnb\'s own messaging).\n' +
+'function sendPreCheckoutEmails() {\n' +
+'  var data = readAll();\n' +
+'  var tomorrow = new Date();\n' +
+'  tomorrow.setDate(tomorrow.getDate() + 1);\n' +
+'  var tomorrowStr = Utilities.formatDate(tomorrow, Session.getScriptTimeZone(), \'yyyy-MM-dd\');\n' +
+'  data.bookings.forEach(function (b) {\n' +
+'    if (b.source !== \'Direct\') return;\n' +
+'    if (b.status !== \'Confirmed-Advance\' && b.status !== \'Confirmed-Paid\') return;\n' +
+'    if (String(b.checkOut).slice(0, 10) !== tomorrowStr) return;\n' +
+'    if (!b.guestEmail) { alertMissingGuestInfo(\'Pre-checkout email\', b, \'it has no Guest Email\'); return; }\n' +
+'    var msg = buildPreCheckoutEmail(b);\n' +
+'    MailApp.sendEmail({ to: b.guestEmail, subject: msg.subject, body: msg.body, bcc: TEAM_ALERT_EMAILS });\n' +
+'  });\n' +
+'}\n' +
+'\n' +
+'// Builds the pre-checkout subject/body for one booking — shared by\n' +
+'// sendPreCheckoutEmails() and retrySendFailed().\n' +
+'function buildPreCheckoutEmail(b) {\n' +
+'    var checkOutLabel = Utilities.formatDate(new Date(b.checkOut + \'T00:00:00\'), Session.getScriptTimeZone(), \'d MMM yyyy\');\n' +
+'    var body = \'Hi \' + b.guestName + \',\\n\\n\' +\n' +
+'      \'Booking: \' + b.bookingNumber + \'\\n\\n\' +\n' +
+'      \'Hope the stay\\\'s been a good one so far. You\\\'re checking out tomorrow, \' + checkOutLabel + \' — a few details for the morning:\\n\\n\' +\n' +
+'      \'CHECK-OUT\\n\' +\n' +
+'      \'- By 11:00 AM.\\n\' +\n' +
+'      \'- Leave the keys with Mansoor, or wherever he\\\'s asked you to.\\n\\n\' +\n' +
+'      \'BEFORE YOU GO\\n\' +\n' +
+'      \'- Wet clothes/towels (including the thorthu) and anything sandy go in the laundry bag in the kitchen.\\n\' +\n' +
+'      \'- Carrying wet or sandy clothes home instead? Ask Mansoor for a take-away laundry bag — available on request.\\n\' +\n' +
+'      \'- Please wash and rack any dishes used.\\n\' +\n' +
+'      \'- Segregate garbage/kitchen waste into the 3 bins in the kitchen.\\n\' +\n' +
+'      \'- Turn off AC, fans, and lights in all rooms — except the switch under the TV (shared with WiFi and CCTV), which should stay on.\\n\\n\' +\n' +
+'      \'Anything not quite right, or need anything before you leave — let Mansoor know, or reach us on WhatsApp: https://wa.me/919846822350\\n\\n\' +\n' +
+'      \'Hope you\\\'ve had a good stay.\\n\\n\' +\n' +
+'      \'Warm regards,\\nTeam Sindooram\';\n' +
+'    return { subject: \'Checking out tomorrow — a few details\', body: body };\n' +
+'}\n' +
+'\n' +
+'// Run this once yourself to schedule sendPreCheckoutEmails() daily at 9am,\n' +
+'// alongside the other reminders. Re-running it is safe — it clears any\n' +
+'// previous schedule for this function first.\n' +
+'function createPreCheckoutTrigger() {\n' +
+'  ScriptApp.getProjectTriggers().forEach(function (t) {\n' +
+'    if (t.getHandlerFunction() === \'sendPreCheckoutEmails\') ScriptApp.deleteTrigger(t);\n' +
+'  });\n' +
+'  ScriptApp.newTrigger(\'sendPreCheckoutEmails\').timeBased().everyDays(1).atHour(9).create();\n' +
+'}\n' +
+'\n' +
+'// Feedback email for Direct bookings that checked out yesterday — thanks\n' +
+'// the guest and asks for a Google review. Direct-only: an Airbnb-booked\n' +
+'// guest has no Airbnb reservation to attach a review to, so that ask\n' +
+'// doesn\'t apply here. Plain text, no attachment.\n' +
+'function sendFeedbackEmails() {\n' +
+'  var data = readAll();\n' +
+'  var yesterday = new Date();\n' +
+'  yesterday.setDate(yesterday.getDate() - 1);\n' +
+'  var yesterdayStr = Utilities.formatDate(yesterday, Session.getScriptTimeZone(), \'yyyy-MM-dd\');\n' +
+'  data.bookings.forEach(function (b) {\n' +
+'    if (b.source !== \'Direct\') return;\n' +
+'    if (b.status !== \'Confirmed-Advance\' && b.status !== \'Confirmed-Paid\') return;\n' +
+'    if (String(b.checkOut).slice(0, 10) !== yesterdayStr) return;\n' +
+'    if (!b.guestEmail) { alertMissingGuestInfo(\'Feedback email\', b, \'it has no Guest Email\'); return; }\n' +
+'    var msg = buildFeedbackEmail(b);\n' +
+'    MailApp.sendEmail({ to: b.guestEmail, subject: msg.subject, body: msg.body, bcc: TEAM_ALERT_EMAILS });\n' +
+'  });\n' +
+'}\n' +
+'\n' +
+'// Builds the feedback/review-ask subject/body for one booking — shared by\n' +
+'// sendFeedbackEmails() and retrySendFailed().\n' +
+'function buildFeedbackEmail(b) {\n' +
+'    var body = \'Hi \' + b.guestName + \',\\n\\n\' +\n' +
+'      \'Booking: \' + b.bookingNumber + \'\\n\\n\' +\n' +
+'      \'Thank you for staying at Sindooram Ecostay — it was a pleasure having you, and we hope you had a good time.\\n\\n\' +\n' +
+'      \'If you enjoyed your stay, the one thing that would mean the world to us is a quick Google review — for a small, family-run place like ours, it genuinely makes a difference: https://g.page/r/CWPQRpdJLtFuEBM/review\\n\\n\' +\n' +
+'      \'We\\\'d also love to feature your stay on our socials — if you\\\'re up for it, share a few pictures with us on WhatsApp: https://wa.me/919846822350 (we make stunning reels 😂). And do follow us on Instagram (https://www.instagram.com/sindooramecostay) and Facebook (https://www.facebook.com/share/14roNs3DeBc/) so we can tag you.\\n\\n\' +\n' +
+'      \'If anything wasn\\\'t quite right, we\\\'d rather hear it directly — just reply to this email or WhatsApp us.\\n\\n\' +\n' +
+'      \'Warm regards,\\nTeam Sindooram\';\n' +
+'    return { subject: \'Thank you for staying with us\', body: body };\n' +
+'}\n' +
+'\n' +
+'// Run this once yourself to schedule sendFeedbackEmails() daily at 9am,\n' +
+'// alongside the other reminders. Re-running it is safe — it clears any\n' +
+'// previous schedule for this function first.\n' +
+'function createFeedbackTrigger() {\n' +
+'  ScriptApp.getProjectTriggers().forEach(function (t) {\n' +
+'    if (t.getHandlerFunction() === \'sendFeedbackEmails\') ScriptApp.deleteTrigger(t);\n' +
+'  });\n' +
+'  ScriptApp.newTrigger(\'sendFeedbackEmails\').timeBased().everyDays(1).atHour(9).create();\n' +
 '}\n' +
 '\n' +
 '// Run this once yourself to sanity-check receipt generation without sending\n' +
@@ -2748,16 +3262,43 @@ function loadReceiptSentInfo(bookingId){
   if(!state.settings.appsScriptUrl) return;
   postAction({ action:'getReceiptInfo', bookingId: bookingId }).then(function(res){
     if(bookingIdInput.value !== bookingId) return;
-    if(res.error || !res.receipt) return;
-    showReceiptSentInfo(res.receipt);
+    if(res.error) return;
+    // Newer backends send every receipt (each with a View button); an
+    // older deployment only sends the latest one, as plain text.
+    if(res.receipts && res.receipts.length) showReceiptSentList(res.receipts);
+    else if(res.receipt) showReceiptSentInfo(res.receipt);
   }).catch(function(){});
 }
-function showReceiptSentInfo(receipt){
+function receiptSentLine(receipt){
   var stageLabel = receipt.stage === 'paid' ? 'Full-payment' : 'Advance';
   var when = receipt.sentAt ? new Date(receipt.sentAt).toLocaleString('en-IN', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }) : '';
   var who = receipt.sentBy ? receipt.sentBy : 'someone';
-  receiptSentInfo.textContent = stageLabel + ' receipt already sent by ' + who + (when ? ' on ' + when : '') + '.';
+  return stageLabel + ' receipt sent by ' + who + (when ? ' on ' + when : '') + '.';
+}
+function showReceiptSentInfo(receipt){
+  receiptSentInfo.textContent = receiptSentLine(receipt);
   receiptSentInfo.style.display = 'block';
+}
+function showReceiptSentList(receipts){
+  receiptSentInfo.innerHTML = receipts.map(function(r){
+    var view = r.id ? ' <button type="button" class="link-btn" data-action="view-sent-receipt" data-receipt-id="' + escapeHtml(r.id) + '" style="background:none;border:0;padding:0;color:var(--accent);font:inherit;font-weight:600;cursor:pointer;text-decoration:underline;">View</button>' : '';
+    return '<div>' + escapeHtml(receiptSentLine(r)) + view + '</div>';
+  }).join('');
+  receiptSentInfo.style.display = 'block';
+}
+// Opens the exact PDF the guest was emailed (the copy saved to Drive at
+// send time), in the same full-size viewer the Preview uses.
+function viewSentReceipt(receiptId){
+  receiptPdfFrame.src = 'about:blank';
+  showModal(receiptPdfOverlay);
+  toast('Opening receipt…');
+  postAction({ action:'getSentReceiptPdf', receiptId: receiptId }).then(function(res){
+    if(res.error) throw new Error(res.error);
+    receiptPdfFrame.src = 'data:application/pdf;base64,' + res.pdfBase64;
+  }).catch(function(err){
+    hideModal(receiptPdfOverlay);
+    toast('Could not open receipt: ' + err.message);
+  });
 }
 // Direct bookings go through the receipt/email flow, which needs these
 // fields — OTA/automation-imported bookings (Airbnb, Booking.com) stay
@@ -2849,6 +3390,8 @@ function sendReceiptNow(){
     toast('Receipt sent');
     showReceiptSentInfo({ stage: receiptStatusStage(), sentBy: receiptLastPayload.sentBy, sentAt: new Date().toISOString() });
     hideModal(receiptPreviewOverlay);
+    // Re-fetch so the receipt just sent shows up with its own View button.
+    loadReceiptSentInfo(receiptLastPayload.bookingId);
   }).catch(function(err){
     toast('Could not send: ' + err.message);
     sendReceiptBtn.disabled = false;
@@ -2909,6 +3452,7 @@ document.addEventListener('click', function(e){
     case 'close-receipt-preview': hideModal(receiptPreviewOverlay); break;
     case 'view-receipt-pdf': showModal(receiptPdfOverlay); break;
     case 'close-receipt-pdf': hideModal(receiptPdfOverlay); break;
+    case 'view-sent-receipt': viewSentReceipt(el.dataset.receiptId); break;
     case 'send-receipt': sendReceiptNow(); break;
   }
 });

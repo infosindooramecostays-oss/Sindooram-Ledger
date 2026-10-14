@@ -20,7 +20,17 @@ function doPost(e) {
     catch (err) { return jsonResponse({ error: String(err.message || err) }); }
   }
   if (data.action === 'getReceiptInfo') {
-    try { return jsonResponse({ receipt: latestReceiptSentInfo(SpreadsheetApp.getActiveSpreadsheet(), data.bookingId) }); }
+    try {
+      var receiptSs = SpreadsheetApp.getActiveSpreadsheet();
+      return jsonResponse({
+        receipt: latestReceiptSentInfo(receiptSs, data.bookingId),
+        receipts: receiptsSentForBooking(receiptSs, data.bookingId)
+      });
+    }
+    catch (err) { return jsonResponse({ error: String(err.message || err) }); }
+  }
+  if (data.action === 'getSentReceiptPdf') {
+    try { return jsonResponse(handleGetSentReceiptPdf(data)); }
     catch (err) { return jsonResponse({ error: String(err.message || err) }); }
   }
   // Everything above this point is an action with no transactions/bookings
@@ -117,7 +127,7 @@ function guardAgainstEmptyOverwrite(ss, sheetName, incomingRows) {
 // stick. Sending this back on every response is what lets the app (and
 // anyone checking) tell definitively whether a redeploy actually took
 // effect, instead of trusting the deployments UI alone.
-var SCRIPT_VERSION = '2026-09-29-1';
+var SCRIPT_VERSION = '2026-10-14-1';
 
 // Reads both sheets and returns them as plain JS objects/arrays.
 function readAll() {
@@ -375,11 +385,12 @@ function getOrCreateFolder(parent, name) {
 // The two receipt "stages" only differ in this copy. Amount Received/Total
 // Amount/dates are filled in by the caller either way.
 function getReceiptContent(input) {
+  var cancellationLines = cancellationPolicyLines(input);
   if (input.stage === 'paid') {
     return {
       statusLine: 'Your booking is confirmed and complete.',
-      balanceLines: ['Full payment received.', 'Booking confirmed and complete — no balance due.'],
-      nonRefundable: 'All payments received are non-refundable.'
+      balanceLines: ['Full payment received — booking confirmed and complete, no balance due.'],
+      cancellationLines: cancellationLines
     };
   }
   var remaining = Math.max(0, Number(input.totalAmount) - Number(input.amountReceived));
@@ -388,9 +399,48 @@ function getReceiptContent(input) {
   var dueDateStr = Utilities.formatDate(dueDate, Session.getScriptTimeZone(), 'd MMM yyyy');
   return {
     statusLine: 'Your booking has been confirmed, pending the remaining balance.',
-    balanceLines: ['Booking confirmed, balance of ' + formatMoney(remaining) + ',', 'Due one day before check-in, i.e. ' + dueDateStr + '.'],
-    nonRefundable: 'Advance payment is non-refundable.'
+    balanceLines: ['Booking confirmed. The balance of ' + formatMoney(remaining) + ' is due by 10:00 AM on ' + dueDateStr + ' (the day before check-in).'],
+    cancellationLines: cancellationLines
   };
+}
+
+// True if any NIGHT of the stay (check-in up to, not including, check-out)
+// falls between 1 November and 31 December — the Direct Booking
+// Cancellation Policy makes those bookings non-refundable, so the receipt
+// states that plainly instead of listing refund tiers that don't apply.
+function stayIncludesPeakNights(checkIn, checkOut) {
+  var parse = function (s) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s || ''));
+    return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null;
+  };
+  var start = parse(checkIn);
+  if (!start) return false;
+  var end = parse(checkOut);
+  if (!end || end <= start) end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1);
+  for (var d = new Date(start); d < end; d.setDate(d.getDate() + 1)) {
+    if (d.getMonth() >= 10) return true;
+  }
+  return false;
+}
+
+// The Direct Booking Cancellation Policy, as printed on page 2 of every
+// receipt. Keep in step with the policy poster and Maya's prompt
+// (maya-email-assistant.gs) — all three should say the same thing.
+function cancellationPolicyLines(input) {
+  var lines = stayIncludesPeakNights(input.checkIn, input.checkOut)
+    ? ['This booking includes peak-season dates (1 November – 31 December) and is non-refundable.']
+    : [
+        'If your plans change, the advance is refunded (minus payment processing charges) as follows: 14 or more days before check-in — full refund; 7–13 days — 50% refund; less than 7 days — no refund.',
+        'Bookings on selected holidays are non-refundable, as confirmed at the time of booking.',
+        'You can move your dates once, at no charge, up to 7 days before check-in, subject to availability. Any difference in rate applies.'
+      ];
+  return lines.concat([
+    'No refund for no-shows, early departures or unused nights.',
+    'If we cancel your booking for any reason, you get a full refund of all amounts paid.',
+    'If the Kerala government or IMD issues a red alert or a travel restriction for Thiruvananthapuram district covering your stay dates, you can choose a full refund or free rebooking.',
+    'Refunds go back to the original payment method (UPI or bank transfer) within 7 business days.',
+    'To cancel, email info.sindooramecostays@gmail.com or WhatsApp +91 98468 22350 with your booking details.'
+  ]);
 }
 
 // Sets bold/color/size on a paragraph's text without relying on Paragraph
@@ -419,6 +469,19 @@ function appendBulletLine(cell, text, opts) {
   if (opts.bold) t.setBold(true);
   t.setForegroundColor(0, 0, BULLET_COLOR);
   return p;
+}
+
+// A borderless, shaded single-cell box for a block of bullet lines (the
+// Payment Terms and Cancellation Policy sections on page 2). Returns the
+// cell, already emptied of the default blank paragraph.
+function appendTermsBox(body) {
+  var table = body.appendTable([['']]);
+  table.setBorderWidth(0);
+  var cell = table.getCell(0, 0);
+  cell.setBackgroundColor(RECEIPT_FILL_COLOR);
+  cell.setPaddingTop(10).setPaddingBottom(10).setPaddingLeft(12).setPaddingRight(12);
+  cell.getChild(0).asParagraph().removeFromParent();
+  return cell;
 }
 
 // A borderless 2-column [label, value] row, value cell highlighted — the
@@ -482,7 +545,7 @@ function buildReceiptPdf(input) {
   infoP2.setAlignment(DocumentApp.HorizontalAlignment.RIGHT);
   infoP2.setSpacingBefore(0).setSpacingAfter(2).setLineSpacing(1);
   styleParaText(infoP2, { size: 9 });
-  var infoP3 = infoCell.appendParagraph('+91 98460 22350  |  sindooramecostays.com');
+  var infoP3 = infoCell.appendParagraph('+91 98468 22350  |  sindooramecostays.com');
   infoP3.setAlignment(DocumentApp.HorizontalAlignment.RIGHT);
   infoP3.setSpacingBefore(0).setSpacingAfter(0).setLineSpacing(1);
   styleParaText(infoP3, { size: 9 });
@@ -523,22 +586,24 @@ function buildReceiptPdf(input) {
   appendFieldRow(body, 'Rate includes', input.rateIncludes || '');
 
   body.appendPageBreak();
-  styleParaText(body.appendParagraph('Payment Terms & Conditions'), { bold: true, color: '#8F4128', size: 12 });
-
-  var termsTable = body.appendTable([['']]);
-  termsTable.setBorderWidth(0);
-  var termsCell = termsTable.getCell(0, 0);
-  termsCell.setBackgroundColor(RECEIPT_FILL_COLOR);
-  termsCell.setPaddingTop(10).setPaddingBottom(10).setPaddingLeft(12).setPaddingRight(12);
-  termsCell.getChild(0).asParagraph().removeFromParent();
+  styleParaText(body.appendParagraph('Payment Terms'), { bold: true, color: '#8F4128', size: 12 });
+  var termsCell = appendTermsBox(body);
   content.balanceLines.forEach(function (line) {
     appendBulletLine(termsCell, line, { size: 10 });
   });
-  appendBulletLine(termsCell, 'Early check-in is subject to availability', { size: 10 });
-  appendBulletLine(termsCell, content.nonRefundable, { size: 10, bold: true });
+  appendBulletLine(termsCell, 'Early check-in and late check-out are subject to availability and prior confirmation.', { size: 10 });
 
   body.appendParagraph('');
-  styleParaText(body.appendParagraph('If you have any questions before your stay, feel free to reach out to us directly on WhatsApp: +91 98460 22350.'), { size: 10 });
+  styleParaText(body.appendParagraph('Cancellation Policy'), { bold: true, color: '#8F4128', size: 12 });
+  var policyCell = appendTermsBox(body);
+  content.cancellationLines.forEach(function (line, i) {
+    // The first line is the one that most depends on this booking (peak
+    // season = non-refundable, otherwise the refund tiers) — bold it.
+    appendBulletLine(policyCell, line, { size: 10, bold: i === 0 });
+  });
+
+  body.appendParagraph('');
+  styleParaText(body.appendParagraph('If you have any questions before your stay, feel free to reach out to us directly on WhatsApp: +91 98468 22350.'), { size: 10 });
   styleParaText(body.appendParagraph('Feel free to check out our website for things to do nearby and more to help you plan your stay: sindooramecostays.com.'), { size: 10 });
   body.appendParagraph('');
   styleParaText(body.appendParagraph('Looking forward to welcoming you all soon!'), { size: 10 });
@@ -586,7 +651,8 @@ function receiptEmailContent(input) {
     'Thank you! Please find attached your payment receipt for booking ' + input.bookingNumber + ' at Sindooram Ecostay.\n\n' +
     content.statusLine + '\n\n' +
     'Check-in: ' + input.checkIn + '\nCheck-out: ' + input.checkOut + '\n\n' +
-    'If you have any questions before your stay, reach us on WhatsApp: +91 98460 22350.\n\n' +
+    'Our payment terms and cancellation policy are on page 2 of the attached receipt.\n\n' +
+    'If you have any questions before your stay, reach us on WhatsApp: +91 98468 22350.\n\n' +
     'Looking forward to welcoming you all soon!\n\nRegards,\nTeam Sindooram';
   return { subject: 'Payment Receipt — Booking ' + input.bookingNumber + ' (' + stagePretty + ')', bodyText: bodyText };
 }
@@ -694,6 +760,51 @@ function latestReceiptSentInfo(ss, bookingId) {
   };
 }
 
+// Every receipt sent for one booking, oldest first — powers the app's
+// "sent by X on Y · View" list. Only rows with a saved PDF link get an id
+// the app can ask to view (older rows logged before the link existed
+// still show, just without a View button).
+function receiptsSentForBooking(ss, bookingId) {
+  var sheet = ss.getSheetByName('Receipts');
+  if (!sheet) return [];
+  var values = sheet.getDataRange().getValues();
+  if (values.length < 2) return [];
+  var headers = values[0];
+  var col = {};
+  headers.forEach(function (h, i) { col[h] = i; });
+  return values.slice(1)
+    .filter(function (row) { return row[col['Booking ID']] === bookingId; })
+    .map(function (row) {
+      var sentAt = row[col['Sent At']];
+      return {
+        id: row[col['PDF Link']] ? String(row[col['ID']] || '') : '',
+        stage: row[col['Stage']],
+        sentBy: col['Sent By'] !== undefined ? String(row[col['Sent By']] || '') : '',
+        sentAt: sentAt instanceof Date ? sentAt.toISOString() : String(sentAt || '')
+      };
+    });
+}
+
+// doPost action 'getSentReceiptPdf' — returns the exact PDF that was
+// emailed (the copy saved to the Payment receipt folder at send time), so
+// anyone using the app can view it without needing access to that Drive
+// folder themselves. Looked up by the Receipts row ID, never by a URL the
+// app supplies.
+function handleGetSentReceiptPdf(data) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Receipts');
+  if (!sheet) throw new Error('No receipts have been sent yet.');
+  var values = sheet.getDataRange().getValues();
+  var headers = values[0];
+  var col = {};
+  headers.forEach(function (h, i) { col[h] = i; });
+  var row = values.slice(1).filter(function (r) { return String(r[col['ID']]) === String(data.receiptId); })[0];
+  if (!row) throw new Error('Receipt not found.');
+  var match = /\/d\/([A-Za-z0-9_-]+)/.exec(String(row[col['PDF Link']] || ''));
+  if (!match) throw new Error('This receipt has no saved PDF.');
+  var file = DriveApp.getFileById(match[1]);
+  return { pdfBase64: Utilities.base64Encode(file.getBlob().getBytes()), fileName: file.getName() };
+}
+
 // Team address used for BCC on every scheduled guest email below, and as
 // the direct recipient for the missing-info alert.
 var TEAM_ALERT_EMAILS = 'chinnoos.pr@gmail.com,chandusrinivasan@yahoo.co.in';
@@ -781,18 +892,21 @@ function retrySendFailed() {
 }
 
 // Daily reminder for Direct bookings still on Confirmed-Advance (balance
-// outstanding) whose check-in is tomorrow. Plain text, no attachment.
-// Skips anything already Confirmed-Paid — nothing owed, nothing to remind.
+// outstanding) whose check-in is in TWO days. The balance is due by 10 AM
+// the day before check-in, so reminding the day before (this runs at 9am)
+// left guests about an hour — two days out gives them a full day.
+// Plain text, no attachment. Skips anything already Confirmed-Paid —
+// nothing owed, nothing to remind.
 function sendPaymentReminders() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var data = readAll();
-  var tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  var tomorrowStr = Utilities.formatDate(tomorrow, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  var inTwoDays = new Date();
+  inTwoDays.setDate(inTwoDays.getDate() + 2);
+  var inTwoDaysStr = Utilities.formatDate(inTwoDays, Session.getScriptTimeZone(), 'yyyy-MM-dd');
   data.bookings.forEach(function (b) {
     if (b.source !== 'Direct') return;
     if (b.status !== 'Confirmed-Advance') return;
-    if (String(b.checkIn).slice(0, 10) !== tomorrowStr) return;
+    if (String(b.checkIn).slice(0, 10) !== inTwoDaysStr) return;
     if (!b.guestEmail) { alertMissingGuestInfo('Balance reminder', b, 'it has no Guest Email'); return; }
     var msg = buildPaymentReminderEmail(ss, b);
     MailApp.sendEmail({ to: b.guestEmail, subject: msg.subject, body: msg.body, bcc: TEAM_ALERT_EMAILS });
@@ -806,12 +920,17 @@ function buildPaymentReminderEmail(ss, b) {
   var receipt = latestReceiptForBooking(ss, b.id, 'advance');
   var amountReceived = receipt ? Number(receipt.amountReceived) : (Number(b.amount) || 0) / 2;
   var remaining = Math.max(0, (Number(b.amount) || 0) - amountReceived);
-  var checkInLabel = Utilities.formatDate(new Date(b.checkIn + 'T00:00:00'), Session.getScriptTimeZone(), 'd MMM yyyy');
-  var dueDateStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'd MMM yyyy');
+  var checkInDate = new Date(b.checkIn + 'T00:00:00');
+  var checkInLabel = Utilities.formatDate(checkInDate, Session.getScriptTimeZone(), 'd MMM yyyy');
+  // Due date comes from the check-in itself, not "today", so a later
+  // resend via retrySendFailed() still names the right day.
+  var dueDate = new Date(checkInDate);
+  dueDate.setDate(dueDate.getDate() - 1);
+  var dueDateStr = Utilities.formatDate(dueDate, Session.getScriptTimeZone(), 'd MMM yyyy');
   var body = 'Hi ' + b.guestName + ',\n\n' +
-    'Just a friendly reminder — your stay at Sindooram Ecostay (Booking ' + b.bookingNumber + ') checks in tomorrow, ' + checkInLabel + '.\n\n' +
-    'The remaining balance of ' + formatMoney(remaining) + ' is due by ' + dueDateStr + ' (one day before check-in).\n\n' +
-    'If you have already paid this, please disregard this message. For any questions, reach us on WhatsApp: +91 98460 22350.\n\n' +
+    'Just a friendly reminder — your stay at Sindooram Ecostay (Booking ' + b.bookingNumber + ') checks in on ' + checkInLabel + '.\n\n' +
+    'The remaining balance of ' + formatMoney(remaining) + ' is due by 10:00 AM on ' + dueDateStr + ' (the day before check-in).\n\n' +
+    'If you have already paid this, please disregard this message. For any questions, reach us on WhatsApp: +91 98468 22350.\n\n' +
     'Looking forward to welcoming you!\n\nRegards,\nTeam Sindooram';
   return { subject: 'Reminder: Balance due for your upcoming stay — ' + b.bookingNumber, body: body };
 }
@@ -862,8 +981,9 @@ function buildArrivalGuideEmail(b) {
       'Sindooram Ecostay, opposite Thakadi Temple, P.O, Edava, Varkala, Kerala 695311\n' +
       'Maps: https://www.google.com/maps/search/?api=1&query=Sindooram+Ecostay+opposite+Thakadi+Temple+Edava+Varkala+Kerala+695311\n\n' +
       'GETTING AROUND\n' +
-      'Want to rent a scooter for beach hopping? Contact Shiraz at Venad Bike Rentals OPS Pvt Ltd — +91 98956 82274.\n' +
-      'Maps: https://www.google.com/maps/search/?api=1&query=PPRC%2B4Q8,+Bus+Stand+Rd,+Varkala,+Kerala,+695141\n\n' +
+      '- Want a scooter for beach hopping? Message us on WhatsApp and we\'ll connect you with a trusted local rental.\n' +
+      '- A driving licence is needed; overseas visitors need an International Driving Permit. Helmets are compulsory for rider and pillion.\n' +
+      '- Autos are easy for short hops; agree the fare first.\n\n' +
       'HOUSE RULES, BRIEFLY\n' +
       '- Waste goes in the 3 bins provided (recyclable, non-recyclable, general).\n' +
       '- Meals and beverages¹ stay in the dining area rather than the bedrooms.\n' +
@@ -880,7 +1000,7 @@ function buildArrivalGuideEmail(b) {
       '¹ Selling, serving, or consuming alcohol for anyone under the age of 23 is prohibited in Kerala under the Abkari Act.\n' +
       '² Possession, sale, or consumption of drugs is prohibited in India for all ages under the NDPS Act.\n\n' +
       'For more on things to do or places to see, visit https://sindooramecostays.com\n\n' +
-      'Anything before you arrive, WhatsApp us: https://wa.me/919846022350\n\n' +
+      'Anything before you arrive, WhatsApp us: https://wa.me/919846822350\n\n' +
       'Warm regards,\nTeam Sindooram';
     return { subject: 'Your stay at Sindooram Ecostay starts tomorrow — arrival details inside', body: body };
 }
@@ -930,7 +1050,7 @@ function buildPreCheckoutEmail(b) {
       '- Please wash and rack any dishes used.\n' +
       '- Segregate garbage/kitchen waste into the 3 bins in the kitchen.\n' +
       '- Turn off AC, fans, and lights in all rooms — except the switch under the TV (shared with WiFi and CCTV), which should stay on.\n\n' +
-      'Anything not quite right, or need anything before you leave — let Mansoor know, or reach us on WhatsApp: https://wa.me/919846022350\n\n' +
+      'Anything not quite right, or need anything before you leave — let Mansoor know, or reach us on WhatsApp: https://wa.me/919846822350\n\n' +
       'Hope you\'ve had a good stay.\n\n' +
       'Warm regards,\nTeam Sindooram';
     return { subject: 'Checking out tomorrow — a few details', body: body };
@@ -972,7 +1092,7 @@ function buildFeedbackEmail(b) {
       'Booking: ' + b.bookingNumber + '\n\n' +
       'Thank you for staying at Sindooram Ecostay — it was a pleasure having you, and we hope you had a good time.\n\n' +
       'If you enjoyed your stay, the one thing that would mean the world to us is a quick Google review — for a small, family-run place like ours, it genuinely makes a difference: https://g.page/r/CWPQRpdJLtFuEBM/review\n\n' +
-      'We\'d also love to feature your stay on our socials — if you\'re up for it, share a few pictures with us on WhatsApp: https://wa.me/919846022350 (we make stunning reels 😂). And do follow us on Instagram (https://www.instagram.com/sindooramecostay) and Facebook (https://www.facebook.com/share/14roNs3DeBc/) so we can tag you.\n\n' +
+      'We\'d also love to feature your stay on our socials — if you\'re up for it, share a few pictures with us on WhatsApp: https://wa.me/919846822350 (we make stunning reels 😂). And do follow us on Instagram (https://www.instagram.com/sindooramecostay) and Facebook (https://www.facebook.com/share/14roNs3DeBc/) so we can tag you.\n\n' +
       'If anything wasn\'t quite right, we\'d rather hear it directly — just reply to this email or WhatsApp us.\n\n' +
       'Warm regards,\nTeam Sindooram';
     return { subject: 'Thank you for staying with us', body: body };
