@@ -274,6 +274,8 @@ input:focus, select:focus{ outline:none; border-color:var(--accent); box-shadow:
 .cal-day.today{ border-color:var(--accent); }
 .cal-day.selected{ background:linear-gradient(135deg, var(--accent), var(--accent-2)); color:#fff; }
 .cal-dot{ width:5px; height:5px; border-radius:50%; background:var(--accent); }
+.cal-channel{ position:absolute; top:3px; right:5px; font-size:9px; font-weight:800; line-height:1; color:var(--critical); }
+.cal-day.selected .cal-channel{ color:#fff; }
 .cal-day.selected .cal-dot{ background:#fff; }
 .cal-day-list{ margin-top:16px; }
 
@@ -729,7 +731,7 @@ var LS_KEYS = { settings:'sr_settings_v1', cache:'sr_cache_v1', uiState:'sr_uist
 // Sheet response carries the version the backend THINKS it's running,
 // and this flags a mismatch loudly instead of relying on someone
 // correctly reading a deployments UI.
-var EXPECTED_SCRIPT_VERSION = '2026-10-14-1';
+var EXPECTED_SCRIPT_VERSION = '2026-10-18-1';
 function checkScriptVersion(data){
   var banner = document.getElementById('staleBackendBanner');
   if(!banner || !data) return;
@@ -839,6 +841,21 @@ var APPS_SCRIPT_CODE =
 '  if (!Array.isArray(data.transactions) || !Array.isArray(data.bookings)) {\n' +
 '    throw new Error(\'Unrecognized request: action "\' + data.action + \'" was not matched, and no transactions/bookings arrays were sent. Refusing to touch the Sheet — this deployment may be out of date.\');\n' +
 '  }\n' +
+'  // The Smoobu sync (syncSmoobu, below) also writes to the Bookings and\n' +
+'  // Transactions sheets every few minutes — hold the same lock it uses so\n' +
+'  // a save and a sync can never interleave and clobber each other\'s rows.\n' +
+'  var saveLock = LockService.getScriptLock();\n' +
+'  saveLock.waitLock(30000);\n' +
+'  try {\n' +
+'    return saveAllFromApp(data);\n' +
+'  } finally {\n' +
+'    saveLock.releaseLock();\n' +
+'  }\n' +
+'}\n' +
+'\n' +
+'// The app\'s full save: replaces both sheets with what the app sent, after\n' +
+'// the safety checks. Always called with the script lock held (see doPost).\n' +
+'function saveAllFromApp(data) {\n' +
 '  var ss = SpreadsheetApp.getActiveSpreadsheet();\n' +
 '  var incomingTransactions = data.transactions;\n' +
 '  var incomingBookings = data.bookings;\n' +
@@ -917,7 +934,7 @@ var APPS_SCRIPT_CODE =
 '// stick. Sending this back on every response is what lets the app (and\n' +
 '// anyone checking) tell definitively whether a redeploy actually took\n' +
 '// effect, instead of trusting the deployments UI alone.\n' +
-'var SCRIPT_VERSION = \'2026-10-14-1\';\n' +
+'var SCRIPT_VERSION = \'2026-10-18-1\';\n' +
 '\n' +
 '// Reads both sheets and returns them as plain JS objects/arrays.\n' +
 'function readAll() {\n' +
@@ -1912,6 +1929,666 @@ var APPS_SCRIPT_CODE =
 '  var pdfBlob = buildReceiptPdf(input);\n' +
 '  DriveApp.getRootFolder().createFile(pdfBlob);\n' +
 '  Logger.log(\'Saved test receipt to your Drive root: \' + pdfBlob.getName());\n' +
+'}\n' +
+'\n' +
+'// ===== Smoobu sync (Airbnb / Booking.com channel manager) =====\n' +
+'//\n' +
+'// Runs every 10 minutes (createSmoobuSyncTrigger) and does two things:\n' +
+'//   PULL — every Smoobu reservation (Airbnb, Booking.com, other channels,\n' +
+'//          and blocks made directly in Smoobu) is added to / kept in step\n' +
+'//          with the Bookings sheet, with an income entry for real bookings.\n' +
+'//          Smoobu is the source of truth for these rows: dates, guests and\n' +
+'//          cancellations follow Smoobu, and a row deleted in the Ledger\n' +
+'//          comes back on the next run while Smoobu still has it.\n' +
+'//   PUSH — every Ledger booking that should make the villa unavailable\n' +
+'//          (Confirmed / Confirmed-Advance / Confirmed-Paid / Dates Held, or\n' +
+'//          an Upgrades maintenance block) is blocked in Smoobu, which then\n' +
+'//          closes the dates on Airbnb and Booking.com. Cancelling, deleting\n' +
+'//          or moving it in the Ledger removes / moves the Smoobu block.\n' +
+'//\n' +
+'// Which Smoobu reservation belongs to which Ledger row lives in the hidden\n' +
+'// "Smoobu Sync" tab, so the Bookings sheet\'s own columns (and the app)\n' +
+'// don\'t need to change. Credentials are Script Properties only —\n' +
+'// SMOOBU_API_KEY and SMOOBU_API_SECRET — never in this file, which is\n' +
+'// public on GitHub and shown in the app\'s Settings.\n' +
+'\n' +
+'var SMOOBU_BASE_URL = \'https://login.smoobu.com\';\n' +
+'var SMOOBU_SYNC_SHEET = \'Smoobu Sync\';\n' +
+'var SMOOBU_SYNC_HEADERS = [\'Smoobu ID\', \'Ledger ID\', \'Kind\', \'Arrival\', \'Departure\', \'Updated At\'];\n' +
+'// Ledger statuses that mean the dates are taken (the same set the Ledger\n' +
+'// calendar and the website availability feed treat as unavailable).\n' +
+'var SMOOBU_BLOCKING_STATUSES = [\'Confirmed\', \'Confirmed-Advance\', \'Confirmed-Paid\', \'Dates Held\'];\n' +
+'// Bookings from these sources come FROM Smoobu — never pushed back as a\n' +
+'// block, or every Airbnb stay would end up double-booked against itself.\n' +
+'var SMOOBU_CHANNEL_SOURCES = [\'Airbnb\', \'Booking.com\'];\n' +
+'// Smoobu\'s default channel for API-created reservations, used for our\n' +
+'// blocks until the dedicated "Blocked" channel\'s id has been seen (it\'s\n' +
+'// learned automatically from the first blocked period the sync pulls).\n' +
+'var SMOOBU_DEFAULT_CHANNEL_ID = 70;\n' +
+'// Email put on every block the sync creates (Smoobu requires one).\n' +
+'var SMOOBU_BLOCK_EMAIL = \'info.sindooramecostays@gmail.com\';\n' +
+'\n' +
+'// Run this once yourself to schedule syncSmoobu() every 10 minutes.\n' +
+'// Re-running it is safe — it clears any previous schedule first.\n' +
+'function createSmoobuSyncTrigger() {\n' +
+'  ScriptApp.getProjectTriggers().forEach(function (t) {\n' +
+'    if (t.getHandlerFunction() === \'syncSmoobu\') ScriptApp.deleteTrigger(t);\n' +
+'  });\n' +
+'  ScriptApp.newTrigger(\'syncSmoobu\').timeBased().everyMinutes(10).create();\n' +
+'}\n' +
+'\n' +
+'// Read-only connection check — run this first after adding the Script\n' +
+'// Properties. Lists the apartment and the upcoming reservations by channel.\n' +
+'// Changes nothing anywhere.\n' +
+'function smoobuTestConnection() {\n' +
+'  var apartments = (smoobuRequest(\'GET\', \'/api/apartments\', {}, null) || {}).apartments || [];\n' +
+'  Logger.log(\'Connected. Apartments: \' + JSON.stringify(apartments.map(function (a) { return a.id + \' \' + a.name; })));\n' +
+'  if (apartments.length !== 1) {\n' +
+'    Logger.log(\'More than one apartment — add SMOOBU_APARTMENT_ID to Script Properties with the right id from the list above.\');\n' +
+'    return;\n' +
+'  }\n' +
+'  var reservations = smoobuFetchReservations(apartments[0].id);\n' +
+'  var byChannel = {};\n' +
+'  reservations.forEach(function (r) {\n' +
+'    var key = (r.channel ? r.channel.name + \' (channel \' + r.channel.id + \')\' : \'unknown\') + (r[\'is-blocked-booking\'] ? \' [blocked]\' : \'\') + \' \' + (r.type || \'\');\n' +
+'    byChannel[key] = (byChannel[key] || 0) + 1;\n' +
+'  });\n' +
+'  Logger.log(\'Upcoming reservations (from yesterday on): \' + reservations.length + \'\\n\' + JSON.stringify(byChannel, null, 2));\n' +
+'}\n' +
+'\n' +
+'// Shows exactly what a real sync WOULD do — rows it would add or update,\n' +
+'// income it would record, blocks it would create or remove in Smoobu —\n' +
+'// without writing anything to the Sheet or to Smoobu. Run this and read\n' +
+'// the Execution log before switching the 10-minute sync on.\n' +
+'function smoobuDryRun() {\n' +
+'  runSmoobuSync(true);\n' +
+'}\n' +
+'\n' +
+'// Read-only: logs every money-related field Smoobu sends for each current\n' +
+'// guest booking, to compare against the actual Airbnb/Booking.com payouts.\n' +
+'function smoobuShowPrices() {\n' +
+'  var reservations = smoobuFetchReservations(smoobuApartmentId(true));\n' +
+'  reservations.forEach(function (r) {\n' +
+'    if (r[\'is-blocked-booking\']) return;\n' +
+'    var money = Object.keys(r).filter(function (k) {\n' +
+'      return /price|commission|paid|deposit|prepay|fee|tax|payout|amount/i.test(k);\n' +
+'    }).map(function (k) {\n' +
+'      var v = r[k];\n' +
+'      return k + \' = \' + (v !== null && typeof v === \'object\' ? JSON.stringify(v) : v);\n' +
+'    });\n' +
+'    Logger.log((r.channel && r.channel.name) + \' | \' + r[\'guest-name\'] + \' | \' + r.arrival + \' to \' + r.departure +\n' +
+'      \' | \' + (r[\'reference-id\'] || r.id) + \'\\n    \' + money.join(\'\\n    \'));\n' +
+'  });\n' +
+'  Logger.log(\'Done — \' + reservations.length + \' reservations checked. Nothing was changed.\');\n' +
+'}\n' +
+'\n' +
+'// One-time: sets every linked Airbnb/Booking.com booking (and its income\n' +
+'// entry) to the real payout — price minus the channel fee. Bookings added\n' +
+'// before this existed hold the guest price or the email capture\'s figure.\n' +
+'// Run smoobuFixAmountsDryRun first to see the changes.\n' +
+'function smoobuFixAmountsDryRun() {\n' +
+'  smoobuFixAmountsRun(true);\n' +
+'}\n' +
+'\n' +
+'function smoobuFixAmounts() {\n' +
+'  var lock = LockService.getScriptLock();\n' +
+'  lock.waitLock(30000);\n' +
+'  try {\n' +
+'    smoobuFixAmountsRun(false);\n' +
+'  } finally {\n' +
+'    lock.releaseLock();\n' +
+'  }\n' +
+'}\n' +
+'\n' +
+'function smoobuFixAmountsRun(dryRun) {\n' +
+'  var ss = SpreadsheetApp.getActiveSpreadsheet();\n' +
+'  var reservations = smoobuFetchReservations(smoobuApartmentId(true));\n' +
+'  var links = readSmoobuLinks(ss);\n' +
+'  var book = readBookingsForSync(ss);\n' +
+'  var txSheet = ss.getSheetByName(\'Transactions\');\n' +
+'  var txValues = txSheet.getLastRow() > 1 ? txSheet.getRange(2, 1, txSheet.getLastRow() - 1, 13).getValues() : [];\n' +
+'  var log = [];\n' +
+'  reservations.forEach(function (r) {\n' +
+'    if (r[\'is-blocked-booking\'] || isSmoobuCancellation(r)) return;\n' +
+'    var link = findLink(links, String(r.id));\n' +
+'    if (!link || link.kind !== \'imported\') return;\n' +
+'    var row = book.byId[link.ledgerId];\n' +
+'    if (!row) return;\n' +
+'    var payout = smoobuPayout(r);\n' +
+'    var b = row.b;\n' +
+'    if (Number(b.amount) !== payout) {\n' +
+'      log.push(\'BOOKING \' + describeBooking(b) + \': \' + formatMoney(Number(b.amount) || 0) + \' -> \' + formatMoney(payout) + \' (\' + payout + \')\');\n' +
+'      if (!dryRun) applyBookingChanges(book, row, [{ key: \'amount\', value: payout }]);\n' +
+'    }\n' +
+'    // Rows the old Airbnb email capture wrote straight to the sheet never got\n' +
+'    // an income entry (only saves made in the app create one) — add it.\n' +
+'    if (!book.hasIncomeFor[b.id] && payout > 0) {\n' +
+'      log.push(\'  + INCOME \' + formatMoney(payout) + \' (none recorded before)\');\n' +
+'      if (!dryRun) {\n' +
+'        b.amount = payout;\n' +
+'        appendIncomeForBooking(ss, b);\n' +
+'        book.hasIncomeFor[b.id] = true;\n' +
+'      }\n' +
+'      return;\n' +
+'    }\n' +
+'    // Income entries for this booking (column 2 = type, 7 = amount, 13 = booking id).\n' +
+'    txValues.forEach(function (t, i) {\n' +
+'      if (String(cleanCellValue(t[12])) !== b.id || t[1] !== \'income\' || Number(t[6]) === payout) return;\n' +
+'      log.push(\'  INCOME \' + t[0] + \': \' + formatMoney(Number(t[6]) || 0) + \' -> \' + formatMoney(payout));\n' +
+'      if (!dryRun) {\n' +
+'        txSheet.getRange(i + 2, 7).setValue(payout);\n' +
+'        txSheet.getRange(i + 2, 11).setValue(forceText(new Date().toISOString()));\n' +
+'      }\n' +
+'    });\n' +
+'  });\n' +
+'  Logger.log((dryRun ? \'DRY RUN — nothing was changed.\\n\' : \'\') + (log.length ? log.join(\'\\n\') : \'All amounts already match the payouts.\'));\n' +
+'}\n' +
+'\n' +
+'// The scheduled entry point. Skips this run (the next one catches up) if\n' +
+'// an app save is in progress, instead of waiting and piling up.\n' +
+'function syncSmoobu() {\n' +
+'  var lock = LockService.getScriptLock();\n' +
+'  if (!lock.tryLock(20000)) { Logger.log(\'Smoobu sync skipped — a save is in progress.\'); return; }\n' +
+'  try {\n' +
+'    runSmoobuSync(false);\n' +
+'  } finally {\n' +
+'    lock.releaseLock();\n' +
+'  }\n' +
+'}\n' +
+'\n' +
+'function runSmoobuSync(dryRun) {\n' +
+'  var ss = SpreadsheetApp.getActiveSpreadsheet();\n' +
+'  var tz = Session.getScriptTimeZone();\n' +
+'  var today = Utilities.formatDate(new Date(), tz, \'yyyy-MM-dd\');\n' +
+'  var log = [];\n' +
+'  var note = function (msg) { log.push(msg); };\n' +
+'\n' +
+'  var apartmentId = smoobuApartmentId(dryRun);\n' +
+'  var reservations = smoobuFetchReservations(apartmentId);\n' +
+'  var links = readSmoobuLinks(ss);\n' +
+'  var book = readBookingsForSync(ss);\n' +
+'  var seen = {};\n' +
+'  reservations.forEach(function (r) { seen[String(r.id)] = r; });\n' +
+'  var blockChannelId = smoobuBlockChannelId(reservations, links, dryRun);\n' +
+'\n' +
+'  // --- PULL: Smoobu -> Ledger ---------------------------------------------\n' +
+'  var linkedLedgerIds = {};\n' +
+'  var importedBefore = {};\n' +
+'  links.forEach(function (l) {\n' +
+'    linkedLedgerIds[l.ledgerId] = true;\n' +
+'    if (l.kind === \'imported\') importedBefore[l.ledgerId] = true;\n' +
+'  });\n' +
+'  // The Ledger\'s own bookings that take dates, for spotting Smoobu blocks\n' +
+'  // someone made by hand to cover them (e.g. one named "Direct booking").\n' +
+'  var ledgerStays = book.rows.filter(function (row) {\n' +
+'    return !importedBefore[row.b.id] && !isSmoobuImportedId(row.b.id) && shouldBlockInSmoobu(row.b);\n' +
+'  }).map(function (row) { return { b: row.b, stay: smoobuStayDates(row.b) }; })\n' +
+'    .filter(function (s) { return s.stay; });\n' +
+'  reservations.forEach(function (r) {\n' +
+'    var sid = String(r.id);\n' +
+'    var link = findLink(links, sid);\n' +
+'    // One of our own blocks whose link was lost (e.g. the Smoobu Sync tab\n' +
+'    // was cleared) — recognise it by the tag in its notice and re-link it,\n' +
+'    // rather than importing it as someone else\'s block.\n' +
+'    var tag = /\\[ledger:([^\\]]+)\\]/.exec(String(r.notice || \'\'));\n' +
+'    if (!link && tag && !isSmoobuCancellation(r)) {\n' +
+'      link = { smoobuId: sid, ledgerId: tag[1], kind: \'pushed\', arrival: String(r.arrival).slice(0, 10), departure: String(r.departure).slice(0, 10) };\n' +
+'      links.push(link);\n' +
+'      note(\'RELINK our Smoobu block \' + sid + \' to Ledger booking \' + tag[1]);\n' +
+'    }\n' +
+'    if (link && link.kind === \'pushed\') return; // one of our own blocks\n' +
+'    var fields = smoobuToLedgerFields(r);\n' +
+'    var cancelled = isSmoobuCancellation(r);\n' +
+'    var row = link ? book.byId[link.ledgerId] : null;\n' +
+'    if (!link) {\n' +
+'      if (cancelled) return; // never seen, already cancelled — nothing to record\n' +
+'      // A hand-made Smoobu block overlapping the Ledger\'s own bookings is\n' +
+'      // just covering them — the Ledger already shows those dates, and the\n' +
+'      // sync blocks their exact dates itself below. Importing it would add\n' +
+'      // a bogus maintenance row on top of real stays.\n' +
+'      if (r[\'is-blocked-booking\']) {\n' +
+'        var covers = ledgerStays.filter(function (s) {\n' +
+'          return s.stay.arrival < fields.checkOut && s.stay.departure > fields.checkIn;\n' +
+'        });\n' +
+'        if (covers.length) {\n' +
+'          note(\'SKIP Smoobu block \' + fields.checkIn + \' -> \' + fields.checkOut + \' ("\' + fields.guestName + \'") — it covers Ledger bookings: \' +\n' +
+'            covers.map(function (s) { return s.b.bookingNumber || s.b.guestName || s.b.id; }).join(\', \'));\n' +
+'          return;\n' +
+'        }\n' +
+'      }\n' +
+'      row = findUnlinkedMatch(book, fields, linkedLedgerIds);\n' +
+'      link = { smoobuId: sid, ledgerId: row ? row.b.id : \'smb_\' + sid, kind: \'imported\' };\n' +
+'      links.push(link);\n' +
+'      linkedLedgerIds[link.ledgerId] = true;\n' +
+'      if (row) note(\'LINK existing Ledger row \' + describeBooking(row.b) + \' to Smoobu \' + sid);\n' +
+'    }\n' +
+'    link.arrival = fields.checkIn;\n' +
+'    link.departure = fields.checkOut;\n' +
+'    if (row) {\n' +
+'      var changes = managedFieldChanges(row.b, fields, cancelled);\n' +
+'      if (changes.length) {\n' +
+'        note(\'UPDATE \' + describeBooking(row.b) + \': \' + changes.map(function (c) { return c.key + \' -> \' + c.value; }).join(\', \'));\n' +
+'        if (!dryRun) applyBookingChanges(book, row, changes);\n' +
+'      }\n' +
+'    } else if (!cancelled) {\n' +
+'      var created = newBookingFromSmoobu(link.ledgerId, fields);\n' +
+'      note(\'ADD \' + describeBooking(created) + \' (\' + fields.source + \')\');\n' +
+'      if (!dryRun) appendBookingRow(book, created);\n' +
+'      if (fields.source !== \'Upgrades\' && !book.hasIncomeFor[created.id]) {\n' +
+'        note(\'  + income \' + formatMoney(created.amount) + \' for \' + created.guestName);\n' +
+'        if (!dryRun) appendIncomeForBooking(ss, created);\n' +
+'      }\n' +
+'    }\n' +
+'  });\n' +
+'\n' +
+'  // A reservation that\'s simply gone from Smoobu (deleted rather than\n' +
+'  // cancelled — typical for removed blocks) cancels its Ledger row.\n' +
+'  links = links.filter(function (l) {\n' +
+'    if (l.kind !== \'imported\' || seen[l.smoobuId] || !(l.departure > today)) return true;\n' +
+'    var gone = book.byId[l.ledgerId];\n' +
+'    if (gone && gone.b.status !== \'Cancelled\') {\n' +
+'      note(\'CANCEL \' + describeBooking(gone.b) + \' — no longer in Smoobu\');\n' +
+'      if (!dryRun) applyBookingChanges(book, gone, [{ key: \'status\', value: \'Cancelled\' }]);\n' +
+'    }\n' +
+'    return false;\n' +
+'  });\n' +
+'\n' +
+'  // --- PUSH: Ledger -> Smoobu blocks --------------------------------------\n' +
+'  var importedLedgerIds = {};\n' +
+'  links.forEach(function (l) { if (l.kind === \'imported\') importedLedgerIds[l.ledgerId] = true; });\n' +
+'  // Only real guest stays count as a clash. A blocked period isn\'t a guest\n' +
+'  // — overlapping one just means the dates were already closed.\n' +
+'  var channelStays = reservations.filter(function (r) {\n' +
+'    var l = findLink(links, String(r.id));\n' +
+'    return !isSmoobuCancellation(r) && !r[\'is-blocked-booking\'] && !(l && l.kind === \'pushed\');\n' +
+'  });\n' +
+'  var wanted = {};\n' +
+'  book.rows.forEach(function (row) {\n' +
+'    var b = row.b;\n' +
+'    if (importedLedgerIds[b.id] || isSmoobuImportedId(b.id) || !shouldBlockInSmoobu(b)) return;\n' +
+'    var stay = smoobuStayDates(b);\n' +
+'    if (!stay || !(stay.departure > today)) return;\n' +
+'    wanted[b.id] = true;\n' +
+'    var clash = channelStays.filter(function (r) { return r.arrival < stay.departure && r.departure > stay.arrival; })[0];\n' +
+'    if (clash) {\n' +
+'      note(\'CLASH \' + describeBooking(b) + \' overlaps \' + smoobuToLedgerFields(clash).source + \' booking \' + (clash[\'guest-name\'] || clash.id) + \' \' + clash.arrival + \' -> \' + clash.departure + \' — not blocked, team alerted\');\n' +
+'      if (!dryRun) smoobuAlertOnce(\'clash_\' + b.id + \'_\' + clash.id,\n' +
+'        \'[Action needed] Possible double booking — \' + (b.bookingNumber || b.guestName || b.id),\n' +
+'        \'The Ledger booking \' + describeBooking(b) + \' overlaps a \' + smoobuToLedgerFields(clash).source + \' booking in Smoobu (\' +\n' +
+'        (clash[\'guest-name\'] || \'guest\') + \', \' + clash.arrival + \' to \' + clash.departure + \').\\n\\n\' +\n' +
+'        \'The Ledger booking was NOT blocked in Smoobu, so nothing was overwritten. Check both bookings and move or cancel one of them.\');\n' +
+'      return;\n' +
+'    }\n' +
+'    var mine = links.filter(function (l) { return l.kind === \'pushed\' && l.ledgerId === b.id; })[0];\n' +
+'    if (mine && mine.arrival === stay.arrival && mine.departure === stay.departure && seen[mine.smoobuId]) return;\n' +
+'    if (mine) {\n' +
+'      note(\'MOVE Smoobu block for \' + describeBooking(b) + \' to \' + stay.arrival + \' -> \' + stay.departure);\n' +
+'      if (!dryRun) {\n' +
+'        if (seen[mine.smoobuId]) smoobuDeleteReservation(mine.smoobuId);\n' +
+'        links.splice(links.indexOf(mine), 1);\n' +
+'      }\n' +
+'    } else {\n' +
+'      note(\'BLOCK in Smoobu \' + stay.arrival + \' -> \' + stay.departure + \' for \' + describeBooking(b));\n' +
+'    }\n' +
+'    if (dryRun) return;\n' +
+'    try {\n' +
+'      // A stay already under way only needs its remaining nights blocked —\n' +
+'      // Smoobu may refuse an arrival in the past. The link still records\n' +
+'      // the booking\'s real dates, so this doesn\'t look like a move tomorrow.\n' +
+'      var createdRes = smoobuRequest(\'POST\', \'/api/reservations\', {}, {\n' +
+'        arrivalDate: stay.arrival < today ? today : stay.arrival,\n' +
+'        departureDate: stay.departure,\n' +
+'        apartmentId: apartmentId,\n' +
+'        channelId: blockChannelId,\n' +
+'        firstName: \'Ledger\',\n' +
+'        lastName: (b.source === \'Upgrades\' ? \'Maintenance\' : b.status) + \' \' + (b.bookingNumber || \'\'),\n' +
+'        // Smoobu refuses a reservation without an email ("Value is required\n' +
+'        // and can\'t be empty"). Our own inbox, never the guest\'s, so any\n' +
+'        // Smoobu message about a block lands with us.\n' +
+'        email: SMOOBU_BLOCK_EMAIL,\n' +
+'        notice: \'Blocked by the Sindooram Ledger for \' + describeBooking(b) + \'. Change it in the Ledger app, not here — this block is managed automatically. [ledger:\' + b.id + \']\'\n' +
+'      });\n' +
+'      links.push({ smoobuId: String(createdRes.id), ledgerId: b.id, kind: \'pushed\', arrival: stay.arrival, departure: stay.departure });\n' +
+'    } catch (err) {\n' +
+'      // Logged every run (the email below only goes out once), so a retry\n' +
+'      // after a fix shows plainly whether it worked.\n' +
+'      note(\'  FAILED: \' + String(err.message || err));\n' +
+'      smoobuAlertOnce(\'pushfail_\' + b.id + \'_\' + stay.arrival + \'_\' + stay.departure,\n' +
+'        \'[Action needed] Could not block dates in Smoobu — \' + (b.bookingNumber || b.guestName || b.id),\n' +
+'        \'The Ledger booking \' + describeBooking(b) + \' should block \' + stay.arrival + \' to \' + stay.departure + \' in Smoobu, but Smoobu refused:\\n\\n\' +\n' +
+'        String(err.message || err) + \'\\n\\nThe dates may already be taken there. Check Smoobu and the Ledger for a double booking. The sync will keep retrying.\');\n' +
+'    }\n' +
+'  });\n' +
+'\n' +
+'  // Our blocks whose Ledger booking was cancelled, deleted or no longer\n' +
+'  // blocks: remove them from Smoobu (past stays are just forgotten).\n' +
+'  links = links.filter(function (l) {\n' +
+'    if (l.kind !== \'pushed\' || wanted[l.ledgerId]) return true;\n' +
+'    if (l.departure > today && seen[l.smoobuId]) {\n' +
+'      note(\'UNBLOCK Smoobu \' + l.arrival + \' -> \' + l.departure + \' (Ledger booking \' + l.ledgerId + \' no longer blocks)\');\n' +
+'      if (!dryRun) smoobuDeleteReservation(l.smoobuId);\n' +
+'    }\n' +
+'    return false;\n' +
+'  });\n' +
+'\n' +
+'  if (!dryRun) writeSmoobuLinks(ss, links);\n' +
+'  Logger.log((dryRun ? \'DRY RUN — nothing was changed.\\n\' : \'\') + (log.length ? log.join(\'\\n\') : \'Nothing to do — Ledger and Smoobu already match.\'));\n' +
+'}\n' +
+'\n' +
+'// --- Smoobu API (HMAC-signed, per docs.smoobu.com) --------------------------\n' +
+'\n' +
+'function smoobuRequest(method, path, query, body) {\n' +
+'  var props = PropertiesService.getScriptProperties();\n' +
+'  var apiKey = String(props.getProperty(\'SMOOBU_API_KEY\') || \'\').trim();\n' +
+'  var apiSecret = String(props.getProperty(\'SMOOBU_API_SECRET\') || \'\').trim();\n' +
+'  if (!apiKey || !apiSecret) throw new Error(\'Add SMOOBU_API_KEY and SMOOBU_API_SECRET in Project Settings → Script Properties first.\');\n' +
+'  var queryString = Object.keys(query || {}).sort().map(function (k) {\n' +
+'    return rfc3986(k) + \'=\' + rfc3986(String(query[k]));\n' +
+'  }).join(\'&\');\n' +
+'  var payload = body ? JSON.stringify(body) : \'\';\n' +
+'  var timestamp = Utilities.formatDate(new Date(), \'UTC\', "yyyy-MM-dd\'T\'HH:mm:ss\'Z\'");\n' +
+'  var nonce = Utilities.getUuid();\n' +
+'  var bodyHash = bytesToHex(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, payload, Utilities.Charset.UTF_8));\n' +
+'  var canonical = [method, path, queryString, timestamp, nonce, bodyHash, apiKey].join(\'\\n\');\n' +
+'  var signature = Utilities.base64Encode(Utilities.computeHmacSha256Signature(canonical, apiSecret, Utilities.Charset.UTF_8));\n' +
+'  var options = {\n' +
+'    method: method.toLowerCase(),\n' +
+'    muteHttpExceptions: true,\n' +
+'    headers: { \'X-API-Key\': apiKey, \'X-Timestamp\': timestamp, \'X-Nonce\': nonce, \'X-Signature\': signature }\n' +
+'  };\n' +
+'  if (body) { options.contentType = \'application/json\'; options.payload = payload; }\n' +
+'  var res = UrlFetchApp.fetch(SMOOBU_BASE_URL + path + (queryString ? \'?\' + queryString : \'\'), options);\n' +
+'  var text = res.getContentText();\n' +
+'  if (res.getResponseCode() >= 300) {\n' +
+'    throw new Error(\'Smoobu \' + method + \' \' + path + \' failed (\' + res.getResponseCode() + \'): \' + text.slice(0, 300));\n' +
+'  }\n' +
+'  return text ? JSON.parse(text) : null;\n' +
+'}\n' +
+'\n' +
+'function rfc3986(s) {\n' +
+'  return encodeURIComponent(s).replace(/[!\'()*]/g, function (c) {\n' +
+'    return \'%\' + c.charCodeAt(0).toString(16).toUpperCase();\n' +
+'  });\n' +
+'}\n' +
+'\n' +
+'function bytesToHex(bytes) {\n' +
+'  return bytes.map(function (b) { return (\'0\' + (b & 0xff).toString(16)).slice(-2); }).join(\'\');\n' +
+'}\n' +
+'\n' +
+'function smoobuApartmentId(dryRun) {\n' +
+'  var props = PropertiesService.getScriptProperties();\n' +
+'  var saved = props.getProperty(\'SMOOBU_APARTMENT_ID\');\n' +
+'  if (saved) return Number(saved);\n' +
+'  var apartments = (smoobuRequest(\'GET\', \'/api/apartments\', {}, null) || {}).apartments || [];\n' +
+'  if (apartments.length !== 1) {\n' +
+'    throw new Error(\'Found \' + apartments.length + \' apartments in Smoobu — add SMOOBU_APARTMENT_ID to Script Properties (run smoobuTestConnection to see the ids).\');\n' +
+'  }\n' +
+'  if (!dryRun) props.setProperty(\'SMOOBU_APARTMENT_ID\', String(apartments[0].id));\n' +
+'  return apartments[0].id;\n' +
+'}\n' +
+'\n' +
+'// Every reservation still relevant (departing yesterday or later), all\n' +
+'// channels, cancellations included so they can be mirrored.\n' +
+'function smoobuFetchReservations(apartmentId) {\n' +
+'  var yesterday = new Date();\n' +
+'  yesterday.setDate(yesterday.getDate() - 1);\n' +
+'  var from = Utilities.formatDate(yesterday, Session.getScriptTimeZone(), \'yyyy-MM-dd\');\n' +
+'  var all = [];\n' +
+'  for (var page = 1, pages = 1; page <= pages && page <= 20; page++) {\n' +
+'    var res = smoobuRequest(\'GET\', \'/api/reservations\', {\n' +
+'      apartmentId: apartmentId, departureFrom: from, showCancellation: \'true\', pageSize: 100, page: page\n' +
+'    }, null) || {};\n' +
+'    all = all.concat(res.bookings || []);\n' +
+'    pages = Number(res.page_count) || 1;\n' +
+'  }\n' +
+'  return all;\n' +
+'}\n' +
+'\n' +
+'function smoobuDeleteReservation(smoobuId) {\n' +
+'  try {\n' +
+'    smoobuRequest(\'DELETE\', \'/api/reservations/\' + smoobuId, {}, null);\n' +
+'  } catch (err) {\n' +
+'    // Already gone in Smoobu is fine — anything else should surface.\n' +
+'    if (String(err.message).indexOf(\'(404)\') === -1) throw err;\n' +
+'  }\n' +
+'}\n' +
+'\n' +
+'// Blocks go on Smoobu\'s dedicated "Blocked" channel once its id is known\n' +
+'// (remembered from the first blocked period seen); until then, the\n' +
+'// default direct channel — either way the dates close on every channel.\n' +
+'function smoobuBlockChannelId(reservations, links, dryRun) {\n' +
+'  var props = PropertiesService.getScriptProperties();\n' +
+'  var saved = props.getProperty(\'SMOOBU_BLOCK_CHANNEL_ID\');\n' +
+'  if (saved) return Number(saved);\n' +
+'  var blocked = reservations.filter(function (r) {\n' +
+'    var l = findLink(links, String(r.id));\n' +
+'    return r[\'is-blocked-booking\'] && r.channel && !(l && l.kind === \'pushed\');\n' +
+'  })[0];\n' +
+'  if (!blocked) return SMOOBU_DEFAULT_CHANNEL_ID;\n' +
+'  if (!dryRun) props.setProperty(\'SMOOBU_BLOCK_CHANNEL_ID\', String(blocked.channel.id));\n' +
+'  return blocked.channel.id;\n' +
+'}\n' +
+'\n' +
+'// --- Mapping Smoobu <-> Ledger ----------------------------------------------\n' +
+'\n' +
+'function smoobuToLedgerFields(r) {\n' +
+'  var channel = String((r.channel && r.channel.name) || \'\');\n' +
+'  var lower = channel.toLowerCase();\n' +
+'  var blocked = !!r[\'is-blocked-booking\'];\n' +
+'  // Never \'Direct\': Direct bookings carry required fields and guest-email\n' +
+'  // automations that imported rows don\'t fit.\n' +
+'  var source = blocked ? \'Upgrades\' : lower.indexOf(\'airbnb\') !== -1 ? \'Airbnb\' : lower.indexOf(\'booking\') !== -1 ? \'Booking.com\' : \'Other\';\n' +
+'  var guests = (Number(r.adults) || 0) + (Number(r.children) || 0);\n' +
+'  var price = Number(r.price) || 0;\n' +
+'  var fee = Number(r[\'commission-included\']) || 0;\n' +
+'  return {\n' +
+'    source: source,\n' +
+'    bookingNumber: String(r[\'reference-id\'] || (\'SMB-\' + r.id)),\n' +
+'    guestName: String(r[\'guest-name\'] || (blocked ? \'Blocked in Smoobu\' : \'\')),\n' +
+'    guestEmail: String(r.email || \'\'),\n' +
+'    guestPhone: String(r.phone || \'\'),\n' +
+'    checkIn: String(r.arrival || \'\').slice(0, 10),\n' +
+'    checkOut: String(r.departure || \'\').slice(0, 10),\n' +
+'    guests: guests || \'\',\n' +
+'    amount: blocked ? 0 : smoobuPayout(r),\n' +
+'    remarks: (\'From Smoobu (\' + (channel || \'unknown channel\') + \')\' +\n' +
+'      (!blocked && fee ? \' — guest price \' + formatMoney(price) + \', channel fee \' + formatMoney(fee) : \'\') +\n' +
+'      (r.notice ? \' — \' + r.notice : \'\')).slice(0, 500)\n' +
+'  };\n' +
+'}\n' +
+'\n' +
+'// What actually reaches us: Smoobu\'s price (already after any discounts,\n' +
+'// excluding the tax the channel collects and remits itself) minus the\n' +
+'// channel\'s fee. Checked against the Airbnb app on 2026-10-18 — the\n' +
+'// "Payout" line inside price-details ignores discounts, so it\'s not used.\n' +
+'function smoobuPayout(r) {\n' +
+'  var payout = (Number(r.price) || 0) - (Number(r[\'commission-included\']) || 0);\n' +
+'  return Math.round(Math.max(0, payout) * 100) / 100;\n' +
+'}\n' +
+'\n' +
+'function newBookingFromSmoobu(ledgerId, f) {\n' +
+'  var now = new Date().toISOString();\n' +
+'  return {\n' +
+'    id: ledgerId, bookingNumber: f.bookingNumber, guestName: f.guestName, guestEmail: f.guestEmail,\n' +
+'    guestPhone: f.guestPhone, checkIn: f.checkIn, checkOut: f.checkOut, source: f.source,\n' +
+'    amount: f.amount, status: \'Confirmed\', remarks: f.remarks, addedBy: \'Smoobu\',\n' +
+'    createdAt: now, updatedAt: now, guests: f.guests\n' +
+'  };\n' +
+'}\n' +
+'\n' +
+'// Fields Smoobu owns for channel bookings. Amount and remarks are only set\n' +
+'// when the row is first added, so the team can adjust them (e.g. to the\n' +
+'// actual payout) without the next sync putting them back.\n' +
+'function managedFieldChanges(b, f, cancelled) {\n' +
+'  var changes = [];\n' +
+'  var set = function (key, value) { if (String(b[key] || \'\') !== String(value || \'\')) changes.push({ key: key, value: value }); };\n' +
+'  set(\'checkIn\', f.checkIn);\n' +
+'  set(\'checkOut\', f.checkOut);\n' +
+'  if (f.guestName) set(\'guestName\', f.guestName);\n' +
+'  if (f.guests) set(\'guests\', f.guests);\n' +
+'  // Smoobu only holds real reservations, so a linked row still sitting on\n' +
+'  // an earlier stage (e.g. an Airbnb "Inquiry" from the email capture)\n' +
+'  // becomes Confirmed. Completed is left alone — that\'s the team\'s call.\n' +
+'  if (cancelled) set(\'status\', \'Cancelled\');\n' +
+'  else if ([\'Confirmed\', \'Confirmed-Advance\', \'Confirmed-Paid\', \'Completed\'].indexOf(b.status) === -1) set(\'status\', \'Confirmed\');\n' +
+'  return changes;\n' +
+'}\n' +
+'\n' +
+'// An existing Ledger row this Smoobu reservation is the same stay as — the\n' +
+'// rows the Airbnb email capture already added: same source, and the same\n' +
+'// confirmation code or the exact same dates.\n' +
+'function findUnlinkedMatch(book, f, linkedLedgerIds) {\n' +
+'  if (f.source === \'Upgrades\') return null;\n' +
+'  var candidates = book.rows.filter(function (row) {\n' +
+'    var b = row.b;\n' +
+'    if (linkedLedgerIds[b.id] || b.source !== f.source || b.status === \'Cancelled\') return false;\n' +
+'    var sameCode = b.bookingNumber && String(b.bookingNumber).trim().toUpperCase() === f.bookingNumber.trim().toUpperCase();\n' +
+'    var sameDates = String(b.checkIn).slice(0, 10) === f.checkIn && String(b.checkOut).slice(0, 10) === f.checkOut;\n' +
+'    return sameCode || sameDates;\n' +
+'  });\n' +
+'  // Prefer the row that\'s already a real booking over an earlier inquiry\n' +
+'  // for the same dates.\n' +
+'  candidates.sort(function (x, y) {\n' +
+'    return (x.b.status.indexOf(\'Confirmed\') === 0 ? 0 : 1) - (y.b.status.indexOf(\'Confirmed\') === 0 ? 0 : 1);\n' +
+'  });\n' +
+'  return candidates[0] || null;\n' +
+'}\n' +
+'\n' +
+'function shouldBlockInSmoobu(b) {\n' +
+'  if (SMOOBU_CHANNEL_SOURCES.indexOf(b.source) !== -1) return false;\n' +
+'  if (b.source === \'Upgrades\') return b.status !== \'Cancelled\';\n' +
+'  return SMOOBU_BLOCKING_STATUSES.indexOf(b.status) !== -1;\n' +
+'}\n' +
+'\n' +
+'// Smoobu stays need departure after arrival; a one-day Ledger block (same\n' +
+'// check-in and check-out) blocks that single night.\n' +
+'function smoobuStayDates(b) {\n' +
+'  var arrival = String(b.checkIn || \'\').slice(0, 10);\n' +
+'  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(arrival)) return null;\n' +
+'  var departure = String(b.checkOut || \'\').slice(0, 10);\n' +
+'  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(departure) || departure <= arrival) {\n' +
+'    var p = arrival.split(\'-\');\n' +
+'    departure = Utilities.formatDate(new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]) + 1), Session.getScriptTimeZone(), \'yyyy-MM-dd\');\n' +
+'  }\n' +
+'  return { arrival: arrival, departure: departure };\n' +
+'}\n' +
+'\n' +
+'function describeBooking(b) {\n' +
+'  return (b.bookingNumber || b.id) + \' \' + (b.guestName || \'\') + \' (\' + String(b.checkIn).slice(0, 10) + \' -> \' + String(b.checkOut).slice(0, 10) + \', \' + b.status + \')\';\n' +
+'}\n' +
+'\n' +
+'// Smoobu\'s live API labels types with longer text than its docs show\n' +
+'// (seen: "modification of booking"), so match on the word, not the exact\n' +
+'// string — a cancellation must never be read as a live booking.\n' +
+'function isSmoobuCancellation(r) {\n' +
+'  return /cancel/i.test(String(r.type || \'\'));\n' +
+'}\n' +
+'\n' +
+'// Rows the sync itself added from Smoobu always get an id starting smb_,\n' +
+'// so they\'re recognised as Smoobu\'s even if the link tab is ever lost —\n' +
+'// never pushed back to Smoobu as a block of their own.\n' +
+'function isSmoobuImportedId(ledgerId) {\n' +
+'  return String(ledgerId).indexOf(\'smb_\') === 0;\n' +
+'}\n' +
+'\n' +
+'function findLink(links, smoobuId) {\n' +
+'  return links.filter(function (l) { return l.smoobuId === smoobuId; })[0] || null;\n' +
+'}\n' +
+'\n' +
+'// --- Sheet access (row-level, so the sync never rewrites whole sheets) ------\n' +
+'\n' +
+'var BOOKING_SHEET_KEYS = [\'id\',\'bookingNumber\',\'guestName\',\'guestEmail\',\'guestPhone\',\'checkIn\',\'checkOut\',\'source\',\'amount\',\'status\',\'remarks\',\'addedBy\',\'createdAt\',\'updatedAt\',\'guests\'];\n' +
+'var BOOKING_TEXT_KEYS = [\'checkIn\', \'checkOut\', \'createdAt\', \'updatedAt\'];\n' +
+'\n' +
+'function readBookingsForSync(ss) {\n' +
+'  var sheet = ss.getSheetByName(\'Bookings\');\n' +
+'  var values = sheet ? sheet.getDataRange().getValues() : [];\n' +
+'  var rows = [];\n' +
+'  var byId = {};\n' +
+'  values.slice(1).forEach(function (raw, i) {\n' +
+'    if (raw[0] === \'\' || raw[0] === null) return;\n' +
+'    var b = {};\n' +
+'    BOOKING_SHEET_KEYS.forEach(function (key, c) { b[key] = cleanCellValue(raw[c]); });\n' +
+'    b.id = String(b.id);\n' +
+'    var row = { rowNumber: i + 2, b: b };\n' +
+'    rows.push(row);\n' +
+'    byId[b.id] = row;\n' +
+'  });\n' +
+'  var hasIncomeFor = {};\n' +
+'  var txSheet = ss.getSheetByName(\'Transactions\');\n' +
+'  if (txSheet && txSheet.getLastRow() > 1) {\n' +
+'    txSheet.getRange(2, 13, txSheet.getLastRow() - 1, 1).getValues().forEach(function (r) {\n' +
+'      if (r[0]) hasIncomeFor[String(r[0])] = true;\n' +
+'    });\n' +
+'  }\n' +
+'  return { sheet: sheet, rows: rows, byId: byId, hasIncomeFor: hasIncomeFor };\n' +
+'}\n' +
+'\n' +
+'function applyBookingChanges(book, row, changes) {\n' +
+'  changes.concat([{ key: \'updatedAt\', value: new Date().toISOString() }]).forEach(function (c) {\n' +
+'    var col = BOOKING_SHEET_KEYS.indexOf(c.key) + 1;\n' +
+'    var value = BOOKING_TEXT_KEYS.indexOf(c.key) !== -1 ? forceText(c.value) : c.value;\n' +
+'    book.sheet.getRange(row.rowNumber, col).setValue(value);\n' +
+'    row.b[c.key] = c.value;\n' +
+'  });\n' +
+'}\n' +
+'\n' +
+'function appendBookingRow(book, b) {\n' +
+'  book.sheet.appendRow(BOOKING_SHEET_KEYS.map(function (key) {\n' +
+'    return BOOKING_TEXT_KEYS.indexOf(key) !== -1 ? forceText(b[key] || \'\') : (b[key] === undefined ? \'\' : b[key]);\n' +
+'  }));\n' +
+'  var row = { rowNumber: book.sheet.getLastRow(), b: b };\n' +
+'  book.rows.push(row);\n' +
+'  book.byId[b.id] = row;\n' +
+'}\n' +
+'\n' +
+'// Same income entry the app itself creates when a booking is confirmed\n' +
+'// (see syncIncomeForBooking in index.html), with the channel as the\n' +
+'// subcategory so Airbnb and Booking.com revenue stay separate.\n' +
+'function appendIncomeForBooking(ss, b) {\n' +
+'  var sheet = ss.getSheetByName(\'Transactions\');\n' +
+'  var now = new Date().toISOString();\n' +
+'  sheet.appendRow([\n' +
+'    \'smbt_\' + b.id, \'income\', forceText(b.checkIn), \'Booking Revenue\', b.source,\n' +
+'    (b.guestName || \'Guest\') + \' — \' + (b.bookingNumber || b.id), Number(b.amount) || 0,\n' +
+'    \'Smoobu\', \'One-off\', forceText(now), forceText(now), forceText(\'\'), b.id\n' +
+'  ]);\n' +
+'}\n' +
+'\n' +
+'function readSmoobuLinks(ss) {\n' +
+'  var sheet = ss.getSheetByName(SMOOBU_SYNC_SHEET);\n' +
+'  if (!sheet || sheet.getLastRow() < 2) return [];\n' +
+'  return sheet.getRange(2, 1, sheet.getLastRow() - 1, SMOOBU_SYNC_HEADERS.length).getValues()\n' +
+'    .filter(function (r) { return r[0] !== \'\' && r[0] !== null; })\n' +
+'    .map(function (r) {\n' +
+'      return {\n' +
+'        smoobuId: String(cleanCellValue(r[0])), ledgerId: String(cleanCellValue(r[1])), kind: String(r[2]),\n' +
+'        arrival: String(cleanCellValue(r[3])).slice(0, 10), departure: String(cleanCellValue(r[4])).slice(0, 10)\n' +
+'      };\n' +
+'    });\n' +
+'}\n' +
+'\n' +
+'function writeSmoobuLinks(ss, links) {\n' +
+'  var sheet = ss.getSheetByName(SMOOBU_SYNC_SHEET);\n' +
+'  if (!sheet) {\n' +
+'    sheet = ss.insertSheet(SMOOBU_SYNC_SHEET);\n' +
+'    sheet.hideSheet();\n' +
+'  }\n' +
+'  sheet.clear();\n' +
+'  var now = new Date().toISOString();\n' +
+'  var rows = [SMOOBU_SYNC_HEADERS].concat(links.map(function (l) {\n' +
+'    return [forceText(l.smoobuId), forceText(l.ledgerId), l.kind, forceText(l.arrival || \'\'), forceText(l.departure || \'\'), forceText(now)];\n' +
+'  }));\n' +
+'  sheet.getRange(1, 1, rows.length, SMOOBU_SYNC_HEADERS.length).setValues(rows);\n' +
+'}\n' +
+'\n' +
+'// One email per problem, not one every 10 minutes while it persists.\n' +
+'function smoobuAlertOnce(key, subject, body) {\n' +
+'  var props = PropertiesService.getScriptProperties();\n' +
+'  var propKey = \'SMOOBU_ALERTED_\' + key.replace(/[^A-Za-z0-9_-]/g, \'_\').slice(0, 200);\n' +
+'  if (props.getProperty(propKey)) return;\n' +
+'  MailApp.sendEmail({ to: TEAM_ALERT_EMAILS, subject: subject, body: body });\n' +
+'  props.setProperty(propKey, new Date().toISOString());\n' +
 '}';
 
 /* ---------- State ---------- */
@@ -2623,7 +3300,13 @@ function renderCalendar(){
     var stateCls = hasUpgrade ? 'upgrades' : hasHeld ? 'dates-held' : hasConfirmed ? 'confirmed' : hasInquiry ? 'inquiry' : (has ? 'has-booking' : 'available');
     var dayTitle = hasUpgrade ? 'Maintenance/renovation' : hasHeld ? 'Dates Held' : hasConfirmed ? 'Booked' : hasInquiry ? 'Inquiry' : (has ? '' : 'Available');
     var cls = 'cal-day ' + stateCls + (dateStr === todayStr ? ' today' : '') + (dateStr === calendarSelectedDate ? ' selected' : '');
-    cells += '<div class="' + cls + '" data-action="cal-pick-day" data-date="' + dateStr + '"' + (dayTitle ? ' title="' + dayTitle + '"' : '') + '>' + d + (has ? '<span class="cal-dot"></span>' : '') + '</div>';
+    // Channel letter on booked days: A = Airbnb, B = Booking.com, D = Direct
+    // (same red as any other confirmed stay, the letter tells them apart).
+    var CHANNEL_LETTERS = { 'Airbnb': 'A', 'Booking.com': 'B', 'Direct': 'D' };
+    var lettered = colorBookings.filter(function(b){ return CHANNEL_LETTERS[b.source]; })[0];
+    var channelLetter = lettered ? CHANNEL_LETTERS[lettered.source] : '';
+    if(channelLetter) dayTitle += (dayTitle ? ' · ' : '') + lettered.source;
+    cells += '<div class="' + cls + '" data-action="cal-pick-day" data-date="' + dateStr + '"' + (dayTitle ? ' title="' + dayTitle + '"' : '') + '>' + d + (channelLetter ? '<span class="cal-channel">' + channelLetter + '</span>' : '') + (has ? '<span class="cal-dot"></span>' : '') + '</div>';
   }
   var weekdaysHTML = ['S','M','T','W','T','F','S'].map(function(w){ return '<div class="cal-weekday">' + w + '</div>'; }).join('');
 
