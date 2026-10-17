@@ -1377,6 +1377,9 @@ function runSmoobuSync(dryRun) {
       if (changes.length) {
         note('UPDATE ' + describeBooking(row.b) + ': ' + changes.map(function (c) { return c.key + ' -> ' + c.value; }).join(', '));
         if (!dryRun) applyBookingChanges(book, row, changes);
+        if (changes.some(function (c) { return c.key === 'status' && c.value === 'Cancelled'; })) {
+          zeroIncomeForBooking(ss, row.b.id, dryRun, note);
+        }
       }
     } else if (!cancelled) {
       var created = newBookingFromSmoobu(link.ledgerId, fields);
@@ -1397,6 +1400,7 @@ function runSmoobuSync(dryRun) {
     if (gone && gone.b.status !== 'Cancelled') {
       note('CANCEL ' + describeBooking(gone.b) + ' — no longer in Smoobu');
       if (!dryRun) applyBookingChanges(book, gone, [{ key: 'status', value: 'Cancelled' }]);
+      zeroIncomeForBooking(ss, gone.b.id, dryRun, note);
     }
     return false;
   });
@@ -1409,6 +1413,11 @@ function runSmoobuSync(dryRun) {
   var channelStays = reservations.filter(function (r) {
     var l = findLink(links, String(r.id));
     return !isSmoobuCancellation(r) && !r['is-blocked-booking'] && !(l && l.kind === 'pushed');
+  });
+  var handBlocks = reservations.filter(function (r) {
+    var l = findLink(links, String(r.id));
+    return r['is-blocked-booking'] && !isSmoobuCancellation(r) && !(l && l.kind === 'pushed') &&
+      !/\[ledger:/.test(String(r.notice || ''));
   });
   var wanted = {};
   book.rows.forEach(function (row) {
@@ -1428,7 +1437,25 @@ function runSmoobuSync(dryRun) {
       return;
     }
     var mine = links.filter(function (l) { return l.kind === 'pushed' && l.ledgerId === b.id; })[0];
-    if (mine && mine.arrival === stay.arrival && mine.departure === stay.departure && seen[mine.smoobuId]) return;
+    // Our block already covers every remaining night. Its arrival can sit
+    // after the booking's own when it was created mid-stay (clamped to that
+    // day) — never delete and re-create it then: Smoobu may refuse the new
+    // one for a stay already under way, leaving the nights open.
+    var pushArrival = stay.arrival < today ? today : stay.arrival;
+    if (mine && seen[mine.smoobuId] && mine.departure === stay.departure &&
+        mine.arrival >= stay.arrival && mine.arrival <= pushArrival) return;
+    // Every remaining night already sits inside a block someone made by hand
+    // in Smoobu — the dates are closed, and Smoobu would refuse ours as an
+    // overlap anyway. Once that block is removed, the next run adds ours.
+    if (nightsCoveredBy(pushArrival, stay.departure, handBlocks)) {
+      if (mine && seen[mine.smoobuId]) {
+        note('UNBLOCK our Smoobu block for ' + describeBooking(b) + ' — a hand-made block now covers it');
+        if (!dryRun) smoobuDeleteReservation(mine.smoobuId);
+      }
+      if (mine && !dryRun) links.splice(links.indexOf(mine), 1);
+      note('COVERED ' + describeBooking(b) + ' — already blocked by hand in Smoobu');
+      return;
+    }
     if (mine) {
       note('MOVE Smoobu block for ' + describeBooking(b) + ' to ' + stay.arrival + ' -> ' + stay.departure);
       if (!dryRun) {
@@ -1761,6 +1788,39 @@ function appendIncomeForBooking(ss, b) {
     (b.guestName || 'Guest') + ' — ' + (b.bookingNumber || b.id), Number(b.amount) || 0,
     'Smoobu', 'One-off', forceText(now), forceText(now), forceText(''), b.id
   ]);
+}
+
+// A cancelled channel booking's income entry is set to 0 (kept, with the
+// old figure in its description) so the monthly P&L stops counting it.
+// Any partial payout the channel still makes is entered by hand.
+function zeroIncomeForBooking(ss, bookingId, dryRun, note) {
+  var sheet = ss.getSheetByName('Transactions');
+  if (!sheet || sheet.getLastRow() < 2) return;
+  sheet.getRange(2, 1, sheet.getLastRow() - 1, 13).getValues().forEach(function (t, i) {
+    if (String(cleanCellValue(t[12])) !== String(bookingId) || t[1] !== 'income' || !Number(t[6])) return;
+    note('  - income ' + formatMoney(Number(t[6])) + ' set to 0 (booking cancelled)');
+    if (dryRun) return;
+    sheet.getRange(i + 2, 6).setValue(String(t[5]) + ' — cancelled (was ' + formatMoney(Number(t[6])) + ')');
+    sheet.getRange(i + 2, 7).setValue(0);
+    sheet.getRange(i + 2, 11).setValue(forceText(new Date().toISOString()));
+  });
+}
+
+// True if every night from `from` up to (not including) `to` falls inside
+// one of the given Smoobu reservations.
+function nightsCoveredBy(from, to, reservations) {
+  if (!(to > from)) return false;
+  var p = from.split('-');
+  var d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+  for (var night = from; night < to; ) {
+    var covered = reservations.some(function (r) {
+      return String(r.arrival).slice(0, 10) <= night && String(r.departure).slice(0, 10) > night;
+    });
+    if (!covered) return false;
+    d.setDate(d.getDate() + 1);
+    night = Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  }
+  return true;
 }
 
 function readSmoobuLinks(ss) {
