@@ -1141,7 +1141,7 @@ function testBuildReceiptPdf() {
 
 // ===== Smoobu sync (Airbnb / Booking.com channel manager) =====
 //
-// Runs every 10 minutes (createSmoobuSyncTrigger) and does two things:
+// Runs every 5 minutes (createSmoobuSyncTrigger) and does two things:
 //   PULL — every Smoobu reservation (Airbnb, Booking.com, other channels,
 //          and blocks made directly in Smoobu) is added to / kept in step
 //          with the Bookings sheet, with an income entry for real bookings.
@@ -1176,13 +1176,13 @@ var SMOOBU_DEFAULT_CHANNEL_ID = 70;
 // Email put on every block the sync creates (Smoobu requires one).
 var SMOOBU_BLOCK_EMAIL = 'info.sindooramecostays@gmail.com';
 
-// Run this once yourself to schedule syncSmoobu() every 10 minutes.
+// Run this once yourself to schedule syncSmoobu() every 5 minutes.
 // Re-running it is safe — it clears any previous schedule first.
 function createSmoobuSyncTrigger() {
   ScriptApp.getProjectTriggers().forEach(function (t) {
     if (t.getHandlerFunction() === 'syncSmoobu') ScriptApp.deleteTrigger(t);
   });
-  ScriptApp.newTrigger('syncSmoobu').timeBased().everyMinutes(10).create();
+  ScriptApp.newTrigger('syncSmoobu').timeBased().everyMinutes(5).create();
 }
 
 // Read-only connection check — run this first after adding the Script
@@ -1790,7 +1790,7 @@ function writeSmoobuLinks(ss, links) {
   sheet.getRange(1, 1, rows.length, SMOOBU_SYNC_HEADERS.length).setValues(rows);
 }
 
-// One email per problem, not one every 10 minutes while it persists.
+// One email per problem, not one every 5 minutes while it persists.
 function smoobuAlertOnce(key, subject, body) {
   var props = PropertiesService.getScriptProperties();
   var propKey = 'SMOOBU_ALERTED_' + key.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 200);
