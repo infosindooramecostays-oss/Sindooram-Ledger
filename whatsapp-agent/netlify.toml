@@ -1,0 +1,13 @@
+# Netlify site for Maya on WhatsApp. In Netlify, set the site's
+# Base directory to "whatsapp-agent" — this folder of the Ledger repo.
+
+[build]
+  command = "npm run build"
+  functions = "netlify/functions"
+  # Only a placeholder page is published; the function is the whole site.
+  publish = "public"
+  # Ledger app pushes don't touch this folder — skip rebuilding for them.
+  ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- ."
+
+[functions]
+  node_bundler = "esbuild"

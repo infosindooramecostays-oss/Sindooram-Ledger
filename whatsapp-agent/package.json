@@ -1,0 +1,13 @@
+{
+  "name": "sindooram-whatsapp-agent",
+  "private": true,
+  "type": "module",
+  "description": "Maya on WhatsApp: Meta webhook -> Claude -> WhatsApp reply, hosted as a Netlify Function.",
+  "scripts": {
+    "build": "node scripts/build-prompt.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.3.0",
+    "@netlify/blobs": "^11.1.6"
+  }
+}
